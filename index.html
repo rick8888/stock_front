@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#11131a" media="(prefers-color-scheme: dark)" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (() => {
+        try {
+          const stored = localStorage.getItem('aria-theme')
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          const dark = stored === 'dark' || (!stored && prefersDark)
+          document.documentElement.classList.toggle('dark', dark)
+          const meta = document.querySelector('meta[name="theme-color"]:not([media])')
+          if (!meta) {
+            const el = document.createElement('meta')
+            el.name = 'theme-color'
+            el.content = dark ? '#11131a' : '#f5f6f8'
+            document.head.appendChild(el)
+          }
+        } catch (_) {}
+      })()
+    </script>
+    <title>Bravo.Stock — Assistant opérationnel</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

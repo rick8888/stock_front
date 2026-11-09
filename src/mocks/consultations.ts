@@ -1,0 +1,50 @@
+import type { Consultation } from '@/types'
+
+export const consultations: Consultation[] = [
+  {
+    id: 'cs-12',
+    code: 'CS-2026-00012',
+    status: 'quoted',
+    procurementRequestIds: ['pr-205'],
+    warehouseId: 'wh-casa',
+    supplierIds: ['sup-nord', 'sup-abc', 'sup-atlas'],
+    items: [{ productId: 'prd-lait', quantity: 200 }],
+    createdAt: '2026-08-26T10:00:00.000Z',
+    sentAt: '2026-08-26T10:00:00.000Z',
+    quotedAt: '2026-08-26T10:12:00.000Z',
+    note: 'Urgence lait Casa — 3 fournisseurs consultés.',
+    quotes: [
+      {
+        id: 'qt-nord',
+        supplierId: 'sup-nord',
+        status: 'received',
+        receivedAt: '2026-08-26T10:08:00.000Z',
+        validUntil: '2026-09-03',
+        leadTimeDays: 5,
+        amount: 1496,
+        lines: [{ productId: 'prd-lait', quantity: 200, unitPrice: 7.48 }],
+        note: 'Stock dispo départ Tanger.',
+      },
+      {
+        id: 'qt-abc',
+        supplierId: 'sup-abc',
+        status: 'received',
+        receivedAt: '2026-08-26T10:11:00.000Z',
+        validUntil: '2026-09-02',
+        leadTimeDays: 3,
+        amount: 1768,
+        lines: [{ productId: 'prd-lait', quantity: 200, unitPrice: 8.84 }],
+      },
+      {
+        id: 'qt-atlas',
+        supplierId: 'sup-atlas',
+        status: 'received',
+        receivedAt: '2026-08-26T10:12:00.000Z',
+        validUntil: '2026-09-04',
+        leadTimeDays: 5,
+        amount: 1683,
+        lines: [{ productId: 'prd-lait', quantity: 200, unitPrice: 8.42 }],
+      },
+    ],
+  },
+]

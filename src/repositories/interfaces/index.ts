@@ -1,0 +1,352 @@
+import type {
+  Alert,
+  Delivery,
+  DeliveryStatus,
+  Driver,
+  Invoice,
+  PermissionKey,
+  PlanningEvent,
+  Consultation,
+  ProcurementRequest,
+  Product,
+  PurchaseOrder,
+  Receipt,
+  Role,
+  Route,
+  Shipment,
+  StockItem,
+  StockMovement,
+  Supplier,
+  Task,
+  User,
+  Vehicle,
+  Warehouse,
+  ShippingNote,
+  Budget,
+  Expense,
+  Payment,
+  InventorySession,
+  RoleKey,
+  BillingInterval,
+  Company,
+  CompanyStatus,
+  PlanModule,
+  PlatformInvoice,
+  Subscription,
+  SubscriptionPlan,
+  SubscriptionStatus,
+} from '@/types'
+
+export interface ProductInput {
+  name: string
+  sku: string
+  categoryId: string
+  unit: string
+  minStock: number
+  maxStock?: number
+  price: number
+  supplierId: string
+  dailyDemand: number
+  description?: string
+  barcode?: string
+  imageUrl?: string
+  images?: string[]
+}
+
+export interface ProductRepository {
+  list(): Promise<Product[]>
+  getById(id: string): Promise<Product | null>
+  create(input: ProductInput): Promise<Product>
+  update(id: string, input: Partial<ProductInput>): Promise<Product>
+  archive(id: string): Promise<void>
+}
+
+export interface WarehouseRepository {
+  list(): Promise<Warehouse[]>
+  getById(id: string): Promise<Warehouse | null>
+  create(input: Omit<Warehouse, 'id'>): Promise<Warehouse>
+  update(id: string, input: Partial<Warehouse>): Promise<Warehouse>
+}
+
+export interface StockRepository {
+  list(): Promise<StockItem[]>
+  movements(): Promise<StockMovement[]>
+  inventories(): Promise<InventorySession[]>
+  receive(productId: string, warehouseId: string, quantity: number, userId: string, note: string, reference?: string): Promise<void>
+  issue(productId: string, warehouseId: string, quantity: number, userId: string, note: string, reference?: string): Promise<void>
+  transfer(
+    productId: string,
+    fromWarehouseId: string,
+    toWarehouseId: string,
+    quantity: number,
+    userId: string,
+    note?: string,
+  ): Promise<void>
+  adjust(productId: string, warehouseId: string, quantity: number, userId: string, note: string): Promise<void>
+  toggleAssignment(productId: string, warehouseId: string, enabled: boolean): Promise<void>
+  startInventory(warehouseId: string, userId: string): Promise<InventorySession>
+  saveInventory(id: string, lines: { productId: string; counted: number }[]): Promise<InventorySession>
+  submitInventory(id: string, userId: string): Promise<InventorySession>
+  completeInventory(id: string, userId: string): Promise<InventorySession>
+  returnStock(productId: string, warehouseId: string, quantity: number, userId: string, note: string, reference?: string): Promise<void>
+  closeDay(warehouseId: string, userId: string): Promise<void>
+}
+
+export interface SupplierInput {
+  name: string
+  contact: string
+  email: string
+  phone: string
+  city: string
+  address?: string
+  ice?: string
+  category?: string
+  paymentTerms?: string
+  note?: string
+  leadTimeDays: number
+}
+
+export interface SupplierRepository {
+  list(): Promise<Supplier[]>
+  getById(id: string): Promise<Supplier | null>
+  create(input: SupplierInput): Promise<Supplier>
+  update(id: string, input: Partial<SupplierInput>): Promise<Supplier>
+}
+
+export interface ProcurementRepository {
+  list(): Promise<ProcurementRequest[]>
+  create(input: Omit<ProcurementRequest, 'id' | 'createdAt' | 'status'> & { status?: ProcurementRequest['status'] }): Promise<ProcurementRequest>
+  updateStatus(
+    id: string,
+    status: ProcurementRequest['status'],
+    extras?: Partial<ProcurementRequest>,
+  ): Promise<ProcurementRequest>
+}
+
+export interface PurchaseRepository {
+  list(): Promise<PurchaseOrder[]>
+  create(input: Omit<PurchaseOrder, 'id' | 'createdAt'>): Promise<PurchaseOrder>
+  updateStatus(id: string, status: PurchaseOrder['status']): Promise<PurchaseOrder>
+}
+
+export interface ConsultationRepository {
+  list(): Promise<Consultation[]>
+  create(input: Omit<Consultation, 'id' | 'createdAt'>): Promise<Consultation>
+  update(id: string, input: Partial<Consultation>): Promise<Consultation>
+}
+
+export interface ReceiptRepository {
+  list(): Promise<Receipt[]>
+  validate(
+    id: string,
+    received: number,
+    userId: string,
+    lines?: { productId: string; received: number }[],
+  ): Promise<Receipt>
+  create(input: Omit<Receipt, 'id'>): Promise<Receipt>
+}
+
+export interface DeliveryLineInput {
+  productId: string
+  quantity: number
+}
+
+export interface DeliveryInput {
+  shippingNoteId: string
+  client?: string
+  address?: string
+  city?: string
+  scheduledAt: string
+  routeId: string
+  notes?: string
+  lines?: DeliveryLineInput[]
+  sequence?: number
+  status?: DeliveryStatus
+}
+
+export interface RouteStopInput {
+  id?: string
+  shippingNoteId: string
+  client?: string
+  address?: string
+  city?: string
+  scheduledAt: string
+  status?: DeliveryStatus
+  notes?: string
+}
+
+export interface RouteInput {
+  name: string
+  date: string
+  driverId: string
+  vehicleId: string
+  warehouseId: string
+  status?: Route['status']
+  stops?: RouteStopInput[]
+}
+
+export interface ShipmentInput {
+  originWarehouseId: string
+  destinationWarehouseId?: string
+  destination?: string
+  vehicleId: string
+  driverId: string
+  routeId?: string
+  date: string
+  eta?: string
+  notes?: string
+  shippingNoteIds: string[]
+  lines?: DeliveryLineInput[]
+  status?: Shipment['status']
+}
+
+export interface DriverInput {
+  firstName: string
+  lastName: string
+  phone: string
+  email?: string
+  warehouseId?: string
+  vehicleId?: string
+  status?: Driver['status']
+}
+
+export interface VehicleInput {
+  name: string
+  plate: string
+  warehouseId: string
+  status?: Vehicle['status']
+  driverId?: string
+}
+
+export interface ShippingNoteInput {
+  warehouseId: string
+  client: string
+  address: string
+  city: string
+  lines: DeliveryLineInput[]
+  notes?: string
+  createdByUserId?: string
+}
+
+export interface DeliveryRepository {
+  list(): Promise<Delivery[]>
+  updateStatus(id: string, status: Delivery['status'], note?: string, signedBy?: string): Promise<Delivery>
+  create(input: DeliveryInput): Promise<Delivery>
+  update(id: string, input: Partial<DeliveryInput>): Promise<Delivery>
+}
+
+export interface LogisticsRepository {
+  shipments(): Promise<Shipment[]>
+  routes(): Promise<Route[]>
+  vehicles(): Promise<Vehicle[]>
+  drivers(): Promise<Driver[]>
+  shippingNotes(): Promise<ShippingNote[]>
+  createShippingNote(input: ShippingNoteInput): Promise<ShippingNote>
+  updateShippingNote(id: string, input: Partial<ShippingNoteInput>): Promise<ShippingNote>
+  updateVehicle(id: string, input: Partial<VehicleInput>): Promise<Vehicle>
+  createVehicle(input: VehicleInput): Promise<Vehicle>
+  createDriver(input: DriverInput): Promise<Driver>
+  updateDriver(id: string, input: Partial<DriverInput>): Promise<Driver>
+  createRoute(input: RouteInput): Promise<Route>
+  updateRoute(id: string, input: Partial<RouteInput>): Promise<Route>
+  createShipment(input: ShipmentInput): Promise<Shipment>
+  updateShipment(id: string, input: Partial<ShipmentInput>): Promise<Shipment>
+  loadShippingNote(id: string, userId: string): Promise<ShippingNote>
+}
+
+export interface TaskRepository {
+  list(): Promise<Task[]>
+  create(input: Omit<Task, 'id'>): Promise<Task>
+  update(id: string, input: Partial<Task>): Promise<Task>
+}
+
+export interface AlertRepository {
+  list(): Promise<Alert[]>
+  markRead(id: string): Promise<void>
+}
+
+export interface PlanningRepository {
+  list(from?: string, to?: string): Promise<PlanningEvent[]>
+}
+
+export interface FinanceRepository {
+  invoices(): Promise<Invoice[]>
+  payments(): Promise<Payment[]>
+  budgets(): Promise<Budget[]>
+  expenses(): Promise<Expense[]>
+  payInvoice(id: string): Promise<void>
+}
+
+export interface UserInput {
+  firstName: string
+  lastName: string
+  email?: string
+  password?: string
+  role: RoleKey
+  title?: string
+  warehouseIds?: string[]
+  productIds?: string[]
+  regionIds?: string[]
+  phone?: string
+  createdByUserId?: string
+  companyId?: string
+}
+
+export interface UserRepository {
+  list(): Promise<User[]>
+  getById(id: string): Promise<User | null>
+  findByEmail(email: string): Promise<User | null>
+  create(input: UserInput): Promise<User>
+  update(id: string, input: Partial<UserInput>): Promise<User>
+}
+
+export interface RoleRepository {
+  list(): Promise<Role[]>
+}
+
+export interface AuthRepository {
+  login(email: string, password: string): Promise<User>
+  logout(): Promise<void>
+  restore(userId: string): Promise<User | null>
+}
+
+export interface CompanyInput {
+  name: string
+  legalName: string
+  ice: string
+  city: string
+  email: string
+  phone: string
+  planId: string
+  interval: BillingInterval
+}
+
+export interface PlanInput {
+  name: string
+  code: string
+  description: string
+  monthlyPrice: number
+  yearlyPrice: number
+  maxUsers: number
+  maxWarehouses: number
+  modules: PlanModule[]
+  active: boolean
+}
+
+export interface PlatformRepository {
+  companies(): Promise<Company[]>
+  plans(): Promise<SubscriptionPlan[]>
+  subscriptions(): Promise<Subscription[]>
+  invoices(): Promise<PlatformInvoice[]>
+  createCompany(input: CompanyInput): Promise<Company>
+  updateCompany(id: string, input: Partial<CompanyInput> & { status?: CompanyStatus }): Promise<Company>
+  createPlan(input: PlanInput): Promise<SubscriptionPlan>
+  updatePlan(id: string, input: Partial<PlanInput>): Promise<SubscriptionPlan>
+  changeSubscription(
+    companyId: string,
+    input: { planId?: string; interval?: BillingInterval; status?: SubscriptionStatus },
+  ): Promise<Subscription>
+  payInvoice(id: string): Promise<void>
+}
+
+export type { PermissionKey }
