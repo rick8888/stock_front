@@ -5,6 +5,7 @@ import type {
   User,
   StockItem,
   PurchaseOrder,
+  PurchaseStatus,
   Receipt,
   TimelineStep,
   RequestPriority,
@@ -21,6 +22,7 @@ export interface RequestLineView {
   unitPrice: number
   amount: number
   available: number
+  inTransit: number
 }
 
 export interface RequestOverview {
@@ -69,6 +71,23 @@ export function orderForRequest(orders: PurchaseOrder[], requestId: string) {
   return orders.find((order) => orderRequestIds(order).includes(requestId))
 }
 
+/** Statuts d'une commande dont la marchandise est encore attendue en réception. */
+export const OPEN_PURCHASE_STATUSES: PurchaseStatus[] = ['draft', 'sent', 'confirmed', 'partial', 'delayed']
+
+/** Quantité déjà commandée et pas encore réceptionnée pour un article sur un entrepôt. */
+export function inTransitFor(orders: PurchaseOrder[], productId: string, warehouseId: string) {
+  return orders
+    .filter((order) => order.warehouseId === warehouseId && OPEN_PURCHASE_STATUSES.includes(order.status))
+    .reduce(
+      (sum, order) =>
+        sum +
+        order.items
+          .filter((item) => item.productId === productId)
+          .reduce((lineSum, item) => lineSum + item.quantity, 0),
+      0,
+    )
+}
+
 export function normalizeStatus(status: string) {
   return status === 'cancelled' ? 'rejected' : status
 }
@@ -103,6 +122,7 @@ export function buildRequestOverviews(input: {
           unitPrice,
           amount: unitPrice * line.quantity,
           available,
+          inTransit: inTransitFor(input.orders, line.productId, request.warehouseId),
         }
       })
       const total = lines.reduce((sum, line) => sum + line.amount, 0)

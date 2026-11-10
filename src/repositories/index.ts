@@ -14,6 +14,7 @@ import type {
   RoleRepository,
   StockRepository,
   SupplierRepository,
+  SupplierProductRepository,
   TaskRepository,
   UserRepository,
   WarehouseRepository,
@@ -29,6 +30,7 @@ import { MockProductRepository } from '@/repositories/mock/product.repository'
 import { MockWarehouseRepository } from '@/repositories/mock/warehouse.repository'
 import { MockStockRepository } from '@/repositories/mock/stock.repository'
 import { MockSupplierRepository } from '@/repositories/mock/supplier.repository'
+import { MockSupplierProductRepository } from '@/repositories/mock/supplierProduct.repository'
 import { MockProcurementRepository } from '@/repositories/mock/procurement.repository'
 import { MockPurchaseRepository } from '@/repositories/mock/purchase.repository'
 import { MockConsultationRepository } from '@/repositories/mock/consultation.repository'
@@ -67,6 +69,7 @@ import {
   ApiStockPlacementRepository,
   ApiStockRepository,
   ApiSupplierRepository,
+  ApiSupplierProductRepository,
   ApiTaskRepository,
   ApiUserRepository,
   ApiWarehouseLocationRepository,
@@ -81,6 +84,9 @@ export const warehouseRepository: WarehouseRepository = useApi
   : new MockWarehouseRepository()
 export const stockRepository: StockRepository = useApi ? new ApiStockRepository() : new MockStockRepository()
 export const supplierRepository: SupplierRepository = useApi ? new ApiSupplierRepository() : new MockSupplierRepository()
+export const supplierProductRepository: SupplierProductRepository = useApi
+  ? new ApiSupplierProductRepository()
+  : new MockSupplierProductRepository()
 export const procurementRepository: ProcurementRepository = useApi
   ? new ApiProcurementRepository()
   : new MockProcurementRepository()

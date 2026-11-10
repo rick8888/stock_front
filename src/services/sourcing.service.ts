@@ -1,4 +1,4 @@
-import type { Product, Supplier } from '@/types'
+import type { Product, Supplier, SupplierProduct } from '@/types'
 import type { RequestLineView, RequestOverview } from './request.overview'
 
 const PRICE_FACTOR: Record<string, number> = {
@@ -28,8 +28,39 @@ export function supplierPriceFactor(supplierId: string) {
   return PRICE_FACTOR[supplierId] ?? 1
 }
 
-export function quantityToOrder(line: RequestLineView) {
-  return Math.max(0, line.quantity - line.available)
+/** Conditions d'achat applicables à une quantité commandée. */
+export interface PurchaseTerms {
+  minOrderQty?: number | null
+  orderMultiple?: number | null
+}
+
+/**
+ * Applique le minimum de commande puis le colisage, dans cet ordre —
+ * le moteur de réapprovisionnement serveur procède de la même façon.
+ */
+export function applyPurchaseTerms(quantity: number, terms?: PurchaseTerms) {
+  if (quantity <= 0) return 0
+  let result = quantity
+  if (terms?.minOrderQty && result < terms.minOrderQty) result = terms.minOrderQty
+  if (terms?.orderMultiple && terms.orderMultiple > 1) {
+    result = Math.ceil(result / terms.orderMultiple) * terms.orderMultiple
+  }
+  return result
+}
+
+/** Conditions d'achat d'un article chez un fournisseur, indexées par "supplierId|productId". */
+export function keyPurchaseTerms(catalog: SupplierProduct[]) {
+  return new Map(catalog.map((row) => [`${row.supplierId}|${row.productId}`, row]))
+}
+
+/**
+ * Quantité à commander pour couvrir une ligne de demande : le besoin net
+ * déduit le stock disponible et ce qui est déjà en route, puis les
+ * conditions du fournisseur s'appliquent si elles sont connues.
+ */
+export function quantityToOrder(line: RequestLineView, terms?: PurchaseTerms) {
+  const net = Math.max(0, line.quantity - line.available - line.inTransit)
+  return applyPurchaseTerms(net, terms)
 }
 
 export function mergeOverviewsForSourcing(overviews: RequestOverview[]): RequestOverview | null {
@@ -61,10 +92,11 @@ export function buildSourcingOffersFor(
   overviews: RequestOverview[],
   products: Product[],
   suppliers: Supplier[],
+  catalog?: SupplierProduct[],
 ): SourcingOffer[] {
   const merged = mergeOverviewsForSourcing(overviews)
   if (!merged) return []
-  return buildSourcingOffers({ overview: merged, products, suppliers })
+  return buildSourcingOffers({ overview: merged, products, suppliers, catalog })
 }
 
 export function isReadyToPurchase(overview: RequestOverview, userId?: string) {
@@ -83,11 +115,13 @@ export function buildSourcingOffers(input: {
   overview: RequestOverview
   products: Product[]
   suppliers: Supplier[]
+  catalog?: SupplierProduct[]
 }): SourcingOffer[] {
   const needed = input.overview.lines
     .map((line) => ({ line, quantity: quantityToOrder(line) }))
     .filter((item) => item.quantity > 0)
   if (!needed.length) return []
+  const terms = keyPurchaseTerms(input.catalog ?? [])
 
   const preferredIds = needed
     .map((item) => input.products.find((product) => product.id === item.line.productId)?.supplierId)
@@ -105,13 +139,25 @@ export function buildSourcingOffers(input: {
 
   const offers = picked.map((supplier) => {
     const factor = supplierPriceFactor(supplier.id)
-    const amount = needed.reduce((sum, item) => sum + item.line.unitPrice * factor * item.quantity, 0)
-    const quantity = needed.reduce((sum, item) => sum + item.quantity, 0)
+    // Minimum de commande et colisage diffèrent d'un fournisseur à l'autre :
+    // la quantité comparée doit être celle qu'il faudrait réellement commander.
+    const lines = needed.map((item) => ({
+      line: item.line,
+      quantity: applyPurchaseTerms(item.quantity, terms.get(`${supplier.id}|${item.line.productId}`)),
+    }))
+    const amount = lines.reduce((sum, item) => sum + item.line.unitPrice * factor * item.quantity, 0)
+    const quantity = lines.reduce((sum, item) => sum + item.quantity, 0)
     const unitPrice = quantity ? amount / quantity : 0
     const reasons: string[] = []
     if (supplier.id === preferredId) reasons.push('Fournisseur habituel de l’article')
     reasons.push(`Fiabilité ${supplier.reliability}%`)
     reasons.push(`Délai annoncé ${supplier.leadTimeDays} j`)
+    const adjusted = lines.filter(
+      (item) => item.quantity !== needed.find((row) => row.line.productId === item.line.productId)?.quantity,
+    )
+    if (adjusted.length) {
+      reasons.push(`Quantité ajustée au minimum/colisage sur ${adjusted.length} article(s)`)
+    }
     const score =
       supplier.reliability * 0.5 +
       Math.max(0, 10 - supplier.leadTimeDays) * 4 +

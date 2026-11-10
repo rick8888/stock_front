@@ -1,8 +1,8 @@
-import { purchaseRepository, procurementRepository, stockRepository, supplierRepository, consultationRepository } from '@/repositories'
+import { purchaseRepository, procurementRepository, stockRepository, supplierRepository, supplierProductRepository, consultationRepository } from '@/repositories'
 import { productService } from './product.service'
 import { receiptService } from './receipt.service'
 import { buildRequestOverviews, orderRequestIds } from './request.overview'
-import { buildSourcingOffersFor, mergeOverviewsForSourcing, quantityToOrder } from './sourcing.service'
+import { buildSourcingOffersFor, keyPurchaseTerms, mergeOverviewsForSourcing, quantityToOrder } from './sourcing.service'
 import { addDays, todayIso } from '@/utils/helpers'
 import type { Consultation, PurchaseOrder, SupplierQuote } from '@/types'
 
@@ -59,10 +59,17 @@ export const purchaseService = {
     })
     const merged = mergeOverviewsForSourcing(overviews)
     if (!merged) throw new Error('Rien à commander')
-    const offer = buildSourcingOffersFor(overviews, products, suppliers).find((item) => item.supplierId === supplierId)
+    const catalog = await supplierProductRepository.list()
+    const offer = buildSourcingOffersFor(overviews, products, suppliers, catalog).find(
+      (item) => item.supplierId === supplierId,
+    )
     if (!offer) throw new Error('Offre fournisseur introuvable')
+    const terms = keyPurchaseTerms(catalog)
     const items = merged.lines
-      .map((line) => ({ productId: line.productId, quantity: quantityToOrder(line) }))
+      .map((line) => ({
+        productId: line.productId,
+        quantity: quantityToOrder(line, terms.get(`${supplierId}|${line.productId}`)),
+      }))
       .filter((line) => line.quantity > 0)
     if (!items.length) throw new Error('Stock suffisant — pas d’ordre d’achat')
     const order = await purchaseRepository.create({

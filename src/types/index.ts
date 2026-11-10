@@ -348,6 +348,22 @@ export interface Supplier {
   status: 'active' | 'pending'
 }
 
+/** Conditions d'achat d'un article chez un fournisseur. */
+export interface SupplierProduct {
+  id: string
+  supplierId: string
+  productId: string
+  supplierSku?: string | null
+  unitPrice?: number | null
+  currency?: string | null
+  minOrderQty?: number | null
+  orderMultiple?: number | null
+  leadTimeDays?: number | null
+  isPreferred: boolean
+  active: boolean
+  companyId?: string | null
+}
+
 export type ProcurementStatus =
   | 'draft'
   | 'submitted'

@@ -152,6 +152,10 @@ export interface SupplierRepository {
   update(id: string, input: Partial<SupplierInput>): Promise<Supplier>
 }
 
+export interface SupplierProductRepository {
+  list(): Promise<import('@/types').SupplierProduct[]>
+}
+
 export interface ProcurementRepository {
   list(): Promise<ProcurementRequest[]>
   create(input: Omit<ProcurementRequest, 'id' | 'createdAt' | 'status'> & { status?: ProcurementRequest['status'] }): Promise<ProcurementRequest>

@@ -39,6 +39,7 @@ import type {
   WarehouseLocationRepository,
   WarehouseLocationInput,
   StockPlacementRepository,
+  SupplierProductRepository,
 } from '@/repositories/interfaces'
 import type {
   Delivery,
@@ -58,6 +59,7 @@ import type {
   User,
   Warehouse,
   Supplier,
+  SupplierProduct,
   StockItem,
   StockMovement,
   InventorySession,
@@ -222,6 +224,12 @@ export class ApiSupplierRepository implements SupplierRepository {
   }
   update(id: string, input: Partial<SupplierInput>): Promise<Supplier> {
     return httpClient.request(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+  }
+}
+
+export class ApiSupplierProductRepository implements SupplierProductRepository {
+  list(): Promise<SupplierProduct[]> {
+    return httpClient.request('/supplier-products')
   }
 }
 

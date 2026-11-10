@@ -1,4 +1,4 @@
-import { consultationRepository, procurementRepository, stockRepository, supplierRepository } from '@/repositories'
+import { consultationRepository, procurementRepository, purchaseRepository, stockRepository, supplierRepository } from '@/repositories'
 import { productService } from './product.service'
 import { purchaseService } from './purchase.service'
 import { buildRequestOverviews } from './request.overview'
@@ -27,11 +27,12 @@ export const consultationService = {
     if (existing && !['awarded', 'cancelled'].includes(existing.status)) {
       throw new Error('Une consultation est déjà en cours pour cette demande')
     }
-    const [requests, products, suppliers, stock] = await Promise.all([
+    const [requests, products, suppliers, stock, orders] = await Promise.all([
       procurementRepository.list(),
       productService.list(),
       supplierRepository.list(),
       stockRepository.list(),
+      purchaseRepository.list(),
     ])
     const selected = ids.map((id) => {
       const request = requests.find((item) => item.id === id)
@@ -46,7 +47,7 @@ export const consultationService = {
       warehouses: [],
       users: [],
       stock,
-      orders: [],
+      orders,
       receipts: [],
     })
     const merged = mergeOverviewsForSourcing(overviews)
