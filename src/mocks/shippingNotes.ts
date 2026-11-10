@@ -1,5 +1,6 @@
 import type { DeliveryNoteLine, ShippingNote } from '@/types'
 import { deliveryCode } from '../lib/utils'
+import { customerFor } from './customers'
 import { deliveries } from './deliveries'
 
 const CATALOG: Array<Omit<DeliveryNoteLine, 'quantity'>> = [
@@ -24,19 +25,31 @@ const ROUTE_SHIPMENT: Record<string, string> = {
   'rt-27b': 'shp-89',
 }
 
-const assigned: ShippingNote[] = deliveries.map((delivery) => ({
-  id: `bl-${delivery.id.replace('dlv-', '')}`,
-  code: deliveryCode(delivery.id),
-  warehouseId: delivery.warehouseId,
-  client: delivery.client,
-  address: delivery.address,
-  city: delivery.city,
-  lines: delivery.lines,
-  status: delivery.status === 'delivered' ? 'delivered' : 'assigned',
-  deliveryId: delivery.id,
-  shipmentId: ROUTE_SHIPMENT[delivery.routeId],
-  notes: delivery.notes,
-}))
+function withCustomer(note: Omit<ShippingNote, 'id'> & { id: string }): ShippingNote {
+  const customer = customerFor(note.client, note.address, note.city)
+  const address = customer?.addresses.find((item) => item.isDefault) ?? customer?.addresses[0]
+  return {
+    ...note,
+    customerId: customer?.id,
+    addressId: address?.id,
+  }
+}
+
+const assigned: ShippingNote[] = deliveries.map((delivery) =>
+  withCustomer({
+    id: `bl-${delivery.id.replace('dlv-', '')}`,
+    code: deliveryCode(delivery.id),
+    warehouseId: delivery.warehouseId,
+    client: delivery.client,
+    address: delivery.address,
+    city: delivery.city,
+    lines: delivery.lines,
+    status: delivery.status === 'delivered' ? 'delivered' : 'assigned',
+    deliveryId: delivery.id,
+    shipmentId: ROUTE_SHIPMENT[delivery.routeId],
+    notes: delivery.notes,
+  }),
+)
 
 const ready: ShippingNote[] = [
   {
@@ -117,4 +130,4 @@ const ready: ShippingNote[] = [
   },
 ]
 
-export const shippingNotes: ShippingNote[] = [...assigned, ...ready]
+export const shippingNotes: ShippingNote[] = [...assigned, ...ready.map((note) => withCustomer(note))]
