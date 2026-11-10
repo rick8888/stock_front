@@ -32,6 +32,9 @@ import type {
   CustomerRepository,
   CustomerInput,
   StockLotRepository,
+  ReplenishmentRepository,
+  BillingSession,
+  PlatformPayResult,
   AnalyticsRepository,
   WarehouseLocationRepository,
   WarehouseLocationInput,
@@ -61,6 +64,7 @@ import type {
   ShippingNote,
   Customer,
   StockLot,
+  ReplenishmentSuggestion,
   WarehouseLocation,
   StockPlacement,
   PickPathStep,
@@ -481,19 +485,21 @@ export class ApiPlatformRepository implements PlatformRepository {
       body: JSON.stringify(input),
     })
   }
-  payInvoice(id: string) {
+  payInvoice(id: string): Promise<PlatformPayResult> {
     return httpClient.request(`/platform/invoices/${id}/pay`, {
       method: 'POST',
       body: JSON.stringify({}),
     })
   }
-  checkout(input: { companyId?: string; planId?: string; interval?: BillingInterval; invoiceId?: string } = {}) {
+  checkout(
+    input: { companyId?: string; planId?: string; interval?: BillingInterval; invoiceId?: string } = {},
+  ): Promise<BillingSession> {
     return httpClient.request('/platform/billing/checkout', {
       method: 'POST',
       body: JSON.stringify(input),
     })
   }
-  portal(input: { companyId?: string } = {}) {
+  portal(input: { companyId?: string } = {}): Promise<BillingSession> {
     return httpClient.request('/platform/billing/portal', {
       method: 'POST',
       body: JSON.stringify(input),
@@ -560,6 +566,19 @@ export class ApiStockLotRepository implements StockLotRepository {
     if (productId) query.set('productId', productId)
     const suffix = query.toString() ? `?${query}` : ''
     return httpClient.request(`/stock/lots${suffix}`)
+  }
+}
+
+export class ApiReplenishmentRepository implements ReplenishmentRepository {
+  list(warehouseId?: string): Promise<ReplenishmentSuggestion[]> {
+    const suffix = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : ''
+    return httpClient.request(`/replenishment/suggestions${suffix}`)
+  }
+  compute(warehouseId: string, refreshDemand = false): Promise<ReplenishmentSuggestion[]> {
+    return httpClient.request('/replenishment/compute', {
+      method: 'POST',
+      body: JSON.stringify({ warehouseId, refreshDemand }),
+    })
   }
 }
 

@@ -246,6 +246,42 @@ export interface StockRecommendation {
   reasons: string[]
 }
 
+export type ReplenishmentPolicy = 'rop' | 'min_max'
+
+/**
+ * Proposition calculée par l'API. Les paramètres d'entrée sont figés avec la quantité
+ * pour que chaque suggestion reste explicable sans rejouer le calcul.
+ */
+export interface ReplenishmentSuggestion {
+  id: string
+  productId: string
+  warehouseId: string
+  supplierId: string | null
+  policy: ReplenishmentPolicy
+  avgDailyDemand: number
+  demandStdDev: number
+  leadTimeDays: number
+  leadTimeStdDev: number
+  serviceLevel: number | null
+  safetyStock: number
+  reorderPoint: number
+  targetLevel: number
+  available: number
+  inTransit: number
+  pendingNeed: number
+  rawQuantity: number
+  suggestedQuantity: number
+  minOrderQty: number | null
+  orderMultiple: number | null
+  unitPrice: number | null
+  estimatedCost: number | null
+  coverDays: number | null
+  risk: 'high' | 'medium' | 'low'
+  reasons: string[]
+  computedAt: string | null
+  companyId?: string | null
+}
+
 export type StockMovementType = 'receive' | 'issue' | 'transfer' | 'adjust' | 'return'
 
 export interface StockMovement {

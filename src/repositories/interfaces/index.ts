@@ -299,6 +299,11 @@ export interface StockLotRepository {
   list(warehouseId?: string, productId?: string): Promise<import('@/types').StockLot[]>
 }
 
+export interface ReplenishmentRepository {
+  list(warehouseId?: string): Promise<import('@/types').ReplenishmentSuggestion[]>
+  compute(warehouseId: string, refreshDemand?: boolean): Promise<import('@/types').ReplenishmentSuggestion[]>
+}
+
 export interface AnalyticsRepository {
   snapshot(): Promise<{
     otifRate: number

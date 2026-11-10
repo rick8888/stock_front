@@ -20,6 +20,7 @@ import type {
   PlatformRepository,
   CustomerRepository,
   StockLotRepository,
+  ReplenishmentRepository,
   AnalyticsRepository,
   WarehouseLocationRepository,
   StockPlacementRepository,
@@ -41,6 +42,7 @@ import { MockAuthRepository, MockRoleRepository, MockUserRepository } from '@/re
 import { MockPlatformRepository } from '@/repositories/mock/platform.repository'
 import { MockCustomerRepository } from '@/repositories/mock/customer.repository'
 import { MockStockLotRepository } from '@/repositories/mock/stockLot.repository'
+import { MockReplenishmentRepository } from '@/repositories/mock/replenishment.repository'
 import { MockAnalyticsRepository } from '@/repositories/mock/analytics.repository'
 import { MockWarehouseLocationRepository } from '@/repositories/mock/location.repository'
 import { MockStockPlacementRepository } from '@/repositories/mock/placement.repository'
@@ -60,6 +62,7 @@ import {
   ApiPurchaseRepository,
   ApiReceiptRepository,
   ApiRoleRepository,
+  ApiReplenishmentRepository,
   ApiStockLotRepository,
   ApiStockPlacementRepository,
   ApiStockRepository,
@@ -100,6 +103,9 @@ export const authRepository: AuthRepository = useApi ? new ApiAuthRepository() :
 export const platformRepository: PlatformRepository = useApi ? new ApiPlatformRepository() : new MockPlatformRepository()
 export const customerRepository: CustomerRepository = useApi ? new ApiCustomerRepository() : new MockCustomerRepository()
 export const stockLotRepository: StockLotRepository = useApi ? new ApiStockLotRepository() : new MockStockLotRepository()
+export const replenishmentRepository: ReplenishmentRepository = useApi
+  ? new ApiReplenishmentRepository()
+  : new MockReplenishmentRepository()
 export const analyticsRepository: AnalyticsRepository = useApi
   ? new ApiAnalyticsRepository()
   : new MockAnalyticsRepository()
