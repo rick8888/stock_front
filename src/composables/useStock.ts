@@ -13,7 +13,7 @@ import { useCurrentUser } from './useAuth'
 import { downloadCsv } from '@/utils/csv'
 import { MOVEMENT_LABEL } from '@/config/stock'
 import { useDataStore } from '@/stores/data'
-import { DEMO_TODAY } from '@/utils/helpers'
+import { opsToday } from '@/utils/helpers'
 import type { StockHealth, StockMovementType, StockOverviewRow } from '@/types'
 
 export function useStock() {
@@ -171,9 +171,9 @@ export function useStock() {
     await refresh(true)
   }
 
-  async function startInventory(warehouseId: string) {
+  async function startInventory(warehouseId: string, scope?: import('@/types').InventoryScope) {
     if (!currentUser.value || !inScopeWarehouse(warehouseId)) throw new Error('Périmètre insuffisant')
-    const session = await stockService.startInventory(warehouseId, currentUser.value.id)
+    const session = await stockService.startInventory(warehouseId, currentUser.value.id, scope)
     await inventories.refresh(true)
     return session
   }
@@ -241,7 +241,7 @@ export function useStock() {
   }
 
   function isClosed(warehouseId: string) {
-    const stamp = `${warehouseId}|${DEMO_TODAY}`
+    const stamp = `${warehouseId}|${opsToday()}`
     return store.db.auditLogs.some((item) => item.action === 'Clôture de journée' && item.entityId === stamp)
   }
 

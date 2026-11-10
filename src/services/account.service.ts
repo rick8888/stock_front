@@ -48,6 +48,14 @@ export const accountService = {
   async payInvoice(companyId: string, invoiceId: string) {
     const invoice = (await this.invoices(companyId)).find((item) => item.id === invoiceId)
     if (!invoice) throw new Error('Facture introuvable.')
-    await platformRepository.payInvoice(invoiceId)
+    return platformRepository.payInvoice(invoiceId)
+  },
+
+  checkout(input: { companyId?: string; planId?: string; interval?: BillingInterval; invoiceId?: string } = {}) {
+    return platformRepository.checkout(input)
+  },
+
+  portal(input: { companyId?: string } = {}) {
+    return platformRepository.portal(input)
   },
 }

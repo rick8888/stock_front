@@ -1,7 +1,13 @@
 import type { InventoryLine, InventorySession, StockMovement, StockMovementType } from '@/types'
 import type { StockRepository } from '@/repositories/interfaces'
 import { assertInboundDocument, assertOutboundDocument, assertInventoryAdjust } from '@/utils/stockDocuments'
-import { uid, DEMO_TODAY } from '@/utils/helpers'
+import { consumePlacementPath } from '@/utils/placements'
+import {
+  filterStockForInventory,
+  inventoryModeFromScope,
+  normalizeInventoryScope,
+} from '@/utils/inventoryScope'
+import { uid, opsToday } from '@/utils/helpers'
 import { db, mutate, withLatency } from './db'
 
 function line(productId: string, warehouseId: string) {
@@ -84,6 +90,7 @@ export class MockStockRepository implements StockRepository {
       const item = line(productId, warehouseId)
       if (item.quantity < quantity) throw new Error('Stock insuffisant')
       item.quantity -= quantity
+      consumePlacementPath(productId, warehouseId, quantity)
       movement('issue', productId, quantity, userId, note, warehouseId, undefined, piece)
       audit('Sortie de stock', 'stock', productId, userId)
     })
@@ -149,7 +156,7 @@ export class MockStockRepository implements StockRepository {
     })
   }
 
-  startInventory(warehouseId: string, userId: string) {
+  startInventory(warehouseId: string, userId: string, scope?: import('@/types').InventoryScope) {
     return mutate(() => {
       const open = db().inventories.find(
         (item) => item.warehouseId === warehouseId && item.status !== 'completed',
@@ -158,22 +165,46 @@ export class MockStockRepository implements StockRepository {
         if (!open.lines) open.lines = []
         return open
       }
-      const lines: InventoryLine[] = db()
-        .stock.filter((row) => row.warehouseId === warehouseId && row.enabled !== false)
-        .map((row) => ({ productId: row.productId, expected: row.quantity, counted: row.quantity }))
-      if (!lines.length) throw new Error('Aucun article actif sur cet entrepôt.')
+      const normalized = normalizeInventoryScope(scope)
+      const rows = filterStockForInventory({
+        warehouseId,
+        stock: db().stock,
+        products: db().products,
+        placements: db().stockPlacements,
+        locations: db().warehouseLocations,
+        scope: normalized,
+      })
+      const lines: InventoryLine[] = rows.map((row) => ({
+        productId: row.productId,
+        expected: row.quantity,
+        counted: row.quantity,
+      }))
+      if (!lines.length) {
+        throw new Error(
+          normalized
+            ? 'Aucun article dans ce périmètre de cycle count.'
+            : 'Aucun article actif sur cet entrepôt.',
+        )
+      }
       const sums = tally(lines)
       const session: InventorySession = {
         id: uid('inv'),
         warehouseId,
         status: 'in_progress',
+        mode: inventoryModeFromScope(normalized),
+        scope: normalized,
         startedAt: new Date().toISOString(),
         userId,
         lines,
         ...sums,
       }
       db().inventories.unshift(session)
-      audit('Inventaire démarré', 'inventory', session.id, userId)
+      audit(
+        session.mode === 'partial' ? 'Cycle count démarré' : 'Inventaire démarré',
+        'inventory',
+        session.id,
+        userId,
+      )
       return session
     })
   }
@@ -233,7 +264,7 @@ export class MockStockRepository implements StockRepository {
           row.productId,
           delta,
           userId,
-          `Inventaire ${session.id}`,
+          `${session.mode === 'partial' ? 'Cycle count' : 'Inventaire'} ${session.id}`,
           session.warehouseId,
           undefined,
           `PV-${session.id.replace(/^inv-/, '').toUpperCase()}`,
@@ -252,7 +283,7 @@ export class MockStockRepository implements StockRepository {
 
   closeDay(warehouseId: string, userId: string) {
     return mutate(() => {
-      const stamp = `${warehouseId}|${DEMO_TODAY}`
+      const stamp = `${warehouseId}|${opsToday()}`
       const already = db().auditLogs.some(
         (item) => item.action === 'Clôture de journée' && item.entityId === stamp,
       )

@@ -163,7 +163,10 @@ export function useProcurement() {
     await list.refresh(true)
   }
 
-  async function validateReceipt(id: string, lines: { productId: string; received: number }[]) {
+  async function validateReceipt(
+    id: string,
+    lines: { productId: string; received: number; lotCode?: string; expiryDate?: string; locationId?: string }[],
+  ) {
     if (!currentUser.value) throw new Error('Non connecté')
     const received = lines.reduce((sum, line) => sum + line.received, 0)
     await receiptService.validate(id, received, currentUser.value.id, lines)
@@ -260,10 +263,13 @@ export function useReceipts() {
   const { currentUser } = useCurrentUser()
   const list = useAsyncList(() => receiptService.list())
 
-  async function validateReceipt(id: string, received: number, lines?: { productId: string; received: number }[]) {
+  async function validateReceipt(
+    id: string,
+    received: number,
+    lines?: { productId: string; received: number; lotCode?: string; expiryDate?: string; locationId?: string }[],
+  ) {
     if (!currentUser.value) throw new Error('Non connecté')
     await receiptService.validate(id, received, currentUser.value.id, lines)
-    await list.refresh(true)
   }
 
   return {

@@ -11,7 +11,7 @@ import { receiptService } from './receipt.service'
 import { planningService } from './task.service'
 import { logisticsService } from './logistics.service'
 import { formatCompactMoney } from '@/lib/utils'
-import { DEMO_TODAY } from '@/utils/helpers'
+import { DEMO_TODAY, opsToday } from '@/utils/helpers'
 
 export interface TodaySignal {
   id: string

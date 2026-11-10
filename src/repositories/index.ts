@@ -18,6 +18,11 @@ import type {
   UserRepository,
   WarehouseRepository,
   PlatformRepository,
+  CustomerRepository,
+  StockLotRepository,
+  AnalyticsRepository,
+  WarehouseLocationRepository,
+  StockPlacementRepository,
 } from '@/repositories/interfaces'
 import { MockProductRepository } from '@/repositories/mock/product.repository'
 import { MockWarehouseRepository } from '@/repositories/mock/warehouse.repository'
@@ -34,10 +39,17 @@ import { MockAlertRepository, MockPlanningRepository } from '@/repositories/mock
 import { MockFinanceRepository } from '@/repositories/mock/finance.repository'
 import { MockAuthRepository, MockRoleRepository, MockUserRepository } from '@/repositories/mock/user.repository'
 import { MockPlatformRepository } from '@/repositories/mock/platform.repository'
+import { MockCustomerRepository } from '@/repositories/mock/customer.repository'
+import { MockStockLotRepository } from '@/repositories/mock/stockLot.repository'
+import { MockAnalyticsRepository } from '@/repositories/mock/analytics.repository'
+import { MockWarehouseLocationRepository } from '@/repositories/mock/location.repository'
+import { MockStockPlacementRepository } from '@/repositories/mock/placement.repository'
 import {
   ApiAlertRepository,
+  ApiAnalyticsRepository,
   ApiAuthRepository,
   ApiConsultationRepository,
+  ApiCustomerRepository,
   ApiDeliveryRepository,
   ApiFinanceRepository,
   ApiLogisticsRepository,
@@ -48,10 +60,13 @@ import {
   ApiPurchaseRepository,
   ApiReceiptRepository,
   ApiRoleRepository,
+  ApiStockLotRepository,
+  ApiStockPlacementRepository,
   ApiStockRepository,
   ApiSupplierRepository,
   ApiTaskRepository,
   ApiUserRepository,
+  ApiWarehouseLocationRepository,
   ApiWarehouseRepository,
 } from '@/repositories/api'
 
@@ -83,3 +98,14 @@ export const userRepository: UserRepository = useApi ? new ApiUserRepository() :
 export const roleRepository: RoleRepository = useApi ? new ApiRoleRepository() : new MockRoleRepository()
 export const authRepository: AuthRepository = useApi ? new ApiAuthRepository() : new MockAuthRepository()
 export const platformRepository: PlatformRepository = useApi ? new ApiPlatformRepository() : new MockPlatformRepository()
+export const customerRepository: CustomerRepository = useApi ? new ApiCustomerRepository() : new MockCustomerRepository()
+export const stockLotRepository: StockLotRepository = useApi ? new ApiStockLotRepository() : new MockStockLotRepository()
+export const analyticsRepository: AnalyticsRepository = useApi
+  ? new ApiAnalyticsRepository()
+  : new MockAnalyticsRepository()
+export const locationRepository: WarehouseLocationRepository = useApi
+  ? new ApiWarehouseLocationRepository()
+  : new MockWarehouseLocationRepository()
+export const placementRepository: StockPlacementRepository = useApi
+  ? new ApiStockPlacementRepository()
+  : new MockStockPlacementRepository()

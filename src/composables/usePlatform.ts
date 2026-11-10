@@ -64,7 +64,11 @@ export function usePlatform() {
   }
 
   async function payInvoice(id: string) {
-    await platformService.payInvoice(id)
+    const result = await platformService.payInvoice(id)
+    if (result?.url) {
+      window.location.assign(result.url)
+      return
+    }
     await refreshAll()
   }
 

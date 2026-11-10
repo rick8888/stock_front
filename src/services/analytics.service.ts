@@ -1,33 +1,20 @@
-import { stockService } from './stock.service'
-import { purchaseService } from './purchase.service'
-import { deliveryService } from './delivery.service'
 import { supplierService } from './supplier.service'
 import { productService } from './product.service'
-import { stockRepository } from '@/repositories'
+import { analyticsRepository } from '@/repositories'
 
 export const analyticsService = {
-  async snapshot(warehouseIds?: string[]) {
-    const [risks, delayed, atRisk, suppliers, products, movements] = await Promise.all([
-      stockService.risks(warehouseIds),
-      purchaseService.delayed(),
-      deliveryService.atRisk(),
+  async snapshot(_warehouseIds?: string[]) {
+    const [kpis, suppliers, products] = await Promise.all([
+      analyticsRepository.snapshot(),
       supplierService.list(),
       productService.list(),
-      stockRepository.movements(),
     ])
-    const issued = movements.filter((item) => item.type === 'issue').reduce((sum, item) => sum + item.quantity, 0)
-    const received = movements
-      .filter((item) => item.type === 'receive')
-      .reduce((sum, item) => sum + item.quantity, 0)
     return {
-      stockRisks: risks.length,
-      delayedOrders: delayed.length,
-      deliveryRisks: atRisk.length,
+      ...kpis,
+      stockRisks: kpis.stockouts + kpis.stockWatch,
+      deliveryRisks: kpis.failedDeliveries + (kpis.otifDelivered - kpis.otifOnTime),
       weakSuppliers: suppliers.filter((item) => item.reliability < 75).length,
       catalogSize: products.length,
-      issued,
-      received,
-      netFlow: received - issued,
     }
   },
 }

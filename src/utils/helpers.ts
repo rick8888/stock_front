@@ -28,7 +28,12 @@ export function startOfWeek(date = new Date()): Date {
   return start
 }
 
-/** Jour de démo — le mock vit le 26 août 2026. */
+/** Jour opérationnel (date système). */
+export function opsToday(): string {
+  return todayIso()
+}
+
+/** Jour figé des seeds mock — ne pas utiliser pour la logique ops runtime. */
 export const DEMO_TODAY = '2026-08-26'
 
 export function dayKey(iso: string) {

@@ -6,6 +6,8 @@ export interface ReceiptLineView extends ReceiptLine {
   productName: string
   sku: string
   unit: string
+  barcode?: string
+  trackLots?: boolean
 }
 
 export interface ReceiptOverview {
@@ -43,19 +45,18 @@ export function buildReceiptOverviews(input: {
       const supplier = input.suppliers.find((item) => item.id === order?.supplierId)
       const linkedIds = order ? orderRequestIds(order) : []
       const linkedRequests = input.requests.filter((item) => linkedIds.includes(item.id))
-      const sourceLines =
-        receipt.items?.length
-          ? receipt.items
-          : (order?.items ?? []).map((item) => ({
-              productId: item.productId,
-              expected: item.quantity,
-              received:
-                receipt.status === 'validated'
-                  ? item.quantity
-                  : order?.items.length === 1
-                    ? receipt.received
-                    : 0,
-            }))
+      const sourceLines: ReceiptLine[] = receipt.items?.length
+        ? receipt.items
+        : (order?.items ?? []).map((item) => ({
+            productId: item.productId,
+            expected: item.quantity,
+            received:
+              receipt.status === 'validated'
+                ? item.quantity
+                : order?.items.length === 1
+                  ? receipt.received
+                  : 0,
+          }))
       const lines = sourceLines.map((line) => {
         const product = input.products.find((item) => item.id === line.productId)
         return {
@@ -65,6 +66,11 @@ export function buildReceiptOverviews(input: {
           unit: product?.unit ?? 'unité',
           expected: line.expected,
           received: line.received,
+          barcode: product?.barcode,
+          trackLots: product?.trackLots,
+          lotCode: line.lotCode,
+          expiryDate: line.expiryDate,
+          locationId: line.locationId,
         }
       })
       const expected = lines.reduce((sum, line) => sum + line.expected, 0) || receipt.expected

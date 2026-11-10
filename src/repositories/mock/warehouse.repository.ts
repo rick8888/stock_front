@@ -1,6 +1,7 @@
 import type { Warehouse } from '@/types'
 import type { WarehouseRepository } from '@/repositories/interfaces'
 import { uid } from '@/utils/helpers'
+import { assertCanAddWarehouse } from '@/utils/planLimits'
 import { db, mutate, withLatency } from './db'
 
 export class MockWarehouseRepository implements WarehouseRepository {
@@ -14,6 +15,7 @@ export class MockWarehouseRepository implements WarehouseRepository {
 
   create(input: Omit<Warehouse, 'id'>) {
     return mutate(() => {
+      assertCanAddWarehouse(input.companyId)
       const warehouse: Warehouse = { id: uid('wh'), ...input }
       db().warehouses.push(warehouse)
       if (warehouse.companyId) {

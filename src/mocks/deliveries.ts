@@ -1,5 +1,5 @@
 import type { Delivery, DeliveryNoteLine, DeliveryStatus } from '@/types'
-import { chainPath, pointAlong } from '../utils/geo'
+import { pointAlong } from '../utils/geo'
 import { CASA_STOPS, RABAT_STOPS, WAREHOUSE_GEO } from './geo'
 
 const CATALOG: Array<Omit<DeliveryNoteLine, 'quantity'>> = [
@@ -76,7 +76,7 @@ export const deliveries: Delivery[] = seeds.map((seed) => {
     CASA_STOPS[seed.id] ??
     RABAT_STOPS[seed.id] ?? { lat: warehouse.lat, lng: warehouse.lng, label: seed.client }
   const progress = progressFor(seed.status)
-  const path = chainPath([warehouse, location])
+  const path = [warehouse, location]
   const currentPosition = pointAlong(path, progress / 100)
   const date = seed.city === 'Rabat' ? '2026-08-27' : '2026-08-26'
   return {

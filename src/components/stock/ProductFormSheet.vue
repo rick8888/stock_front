@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Textarea from '@/components/ui/Textarea.vue'
+import Switch from '@/components/ui/Switch.vue'
 import type { Category, Product, Supplier } from '@/types'
 import type { ProductInput } from '@/repositories/interfaces'
 
@@ -39,6 +40,7 @@ const dailyDemand = ref('5')
 const images = ref<string[]>([])
 const fileError = ref('')
 const skuTouched = ref(false)
+const trackLots = ref(false)
 
 const editing = computed(() => Boolean(props.product))
 const canSubmit = computed(() => name.value.trim().length > 1 && sku.value.trim().length > 1 && categoryId.value && supplierId.value)
@@ -68,6 +70,7 @@ function reset() {
   maxStock.value = String(current?.maxStock ?? 200)
   dailyDemand.value = String(current?.dailyDemand ?? 5)
   images.value = current?.images?.length ? [...current.images] : current?.imageUrl ? [current.imageUrl] : []
+  trackLots.value = Boolean(current?.trackLots)
   fileError.value = ''
   skuTouched.value = Boolean(current?.sku)
 }
@@ -133,6 +136,7 @@ function submit() {
       barcode: barcode.value.trim() || undefined,
       images: [...images.value],
       imageUrl: images.value[0] ?? '',
+      trackLots: trackLots.value,
     },
   })
 }
@@ -245,6 +249,13 @@ function submit() {
             <Label>Stock maximum</Label>
             <Input v-model="maxStock" type="number" min="0" class="mt-1.5" />
           </div>
+        </div>
+        <div class="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5">
+          <div>
+            <p class="text-sm font-medium">Suivi lots / DLC</p>
+            <p class="text-xs text-muted-foreground">FEFO à la sortie, saisie lot à la réception.</p>
+          </div>
+          <Switch :checked="trackLots" @update:checked="trackLots = $event" />
         </div>
       </section>
     </div>

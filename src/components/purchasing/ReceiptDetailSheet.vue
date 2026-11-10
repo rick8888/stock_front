@@ -9,28 +9,63 @@ import { RECEIPT_LABEL } from '@/services/receipt.overview'
 import type { ReceiptOverview } from '@/services/receipt.overview'
 import OfficialDocument from '@/components/documents/OfficialDocument.vue'
 import DocumentShareBar from '@/components/documents/DocumentShareBar.vue'
+import LinePickSheet, { type PickedLine } from '@/components/stock/LinePickSheet.vue'
 import { useIssuer } from '@/composables/useIssuer'
+import { locationRepository } from '@/repositories'
 import { documentWhatsAppMessage } from '@/utils/documents'
+import type { WarehouseLocation } from '@/types'
 
 const props = defineProps<{ open: boolean; overview: ReceiptOverview | null; canReceive: boolean }>()
-const emit = defineEmits<{ close: []; validate: [lines: { productId: string; received: number }[]] }>()
+const emit = defineEmits<{
+  close: []
+  validate: [lines: { productId: string; received: number; lotCode?: string; expiryDate?: string; locationId?: string }[]]
+}>()
 const { issuer } = useIssuer()
 
 const qty = ref<Record<string, string>>({})
+const lotCode = ref<Record<string, string>>({})
+const expiryDate = ref<Record<string, string>>({})
+const locationId = ref<Record<string, string>>({})
+const locations = ref<WarehouseLocation[]>([])
+const pickOpen = ref(false)
 
 watch(
   () => props.overview?.receipt.id,
-  () => {
+  async () => {
     const next: Record<string, string> = {}
+    const nextLot: Record<string, string> = {}
+    const nextExp: Record<string, string> = {}
+    const nextLoc: Record<string, string> = {}
     props.overview?.lines.forEach((line) => {
       next[line.productId] = String(line.received || line.expected)
+      nextLot[line.productId] = line.lotCode ?? ''
+      nextExp[line.productId] = line.expiryDate ?? ''
+      nextLoc[line.productId] = line.locationId ?? ''
     })
     qty.value = next
+    lotCode.value = nextLot
+    expiryDate.value = nextExp
+    locationId.value = nextLoc
+    pickOpen.value = false
+    const warehouseId = props.overview?.receipt.warehouseId
+    locations.value = warehouseId ? await locationRepository.list(warehouseId) : []
   },
   { immediate: true },
 )
 
 const pending = computed(() => props.overview && props.overview.receipt.status !== 'validated')
+
+const pickLines = computed(() =>
+  (props.overview?.lines ?? []).map((line) => ({
+    productId: line.productId,
+    productName: line.productName,
+    sku: line.sku,
+    barcode: line.barcode,
+    quantity: line.expected,
+    unit: line.unit,
+    trackLots: line.trackLots,
+  })),
+)
 
 const brLines = computed(() =>
   (props.overview?.lines ?? []).map((line) => ({
@@ -75,8 +110,16 @@ function submit() {
     props.overview.lines.map((line) => ({
       productId: line.productId,
       received: Number(qty.value[line.productId] ?? line.expected),
+      lotCode: lotCode.value[line.productId]?.trim() || undefined,
+      expiryDate: expiryDate.value[line.productId]?.trim() || undefined,
+      locationId: locationId.value[line.productId]?.trim() || undefined,
     })),
   )
+}
+
+function onPicked(lines: PickedLine[]) {
+  pickOpen.value = false
+  emit('validate', lines)
 }
 </script>
 
@@ -114,8 +157,16 @@ function submit() {
           <article v-for="line in overview.lines" :key="line.productId" class="rounded-xl border px-3 py-2.5">
             <p class="text-sm font-medium">{{ line.productName }}</p>
             <p class="text-xs text-muted-foreground">{{ line.sku }} · attendu {{ formatNumber(line.expected) }} {{ line.unit }}s</p>
-            <div v-if="pending && canReceive" class="mt-2">
+            <div v-if="pending && canReceive" class="mt-2 space-y-2">
               <Input v-model="qty[line.productId]" type="number" min="0" />
+              <div v-if="line.trackLots" class="grid grid-cols-2 gap-2">
+                <Input v-model="lotCode[line.productId]" placeholder="Lot" />
+                <Input v-model="expiryDate[line.productId]" type="date" />
+              </div>
+              <select v-if="locations.length" v-model="locationId[line.productId]" class="h-10 w-full rounded-lg border bg-card px-3 text-sm">
+                <option value="">Putaway auto</option>
+                <option v-for="loc in locations" :key="loc.id" :value="loc.id">{{ loc.code }} · {{ loc.type }}</option>
+              </select>
             </div>
             <p v-else class="mt-1 text-xs text-muted-foreground">Reçu {{ formatNumber(line.received) }}</p>
           </article>
@@ -142,15 +193,28 @@ function submit() {
         :notes="overview.variance ? `Écart : ${formatNumber(overview.variance)}` : ''"
         :signatures="[
           { label: 'Réception magasin' },
-          { label: 'Livreur / fournisseur', name: overview.supplierName },
+          { label: 'Signature livreur / fournisseur', name: overview.supplierName },
         ]"
       />
     </div>
     <template #footer>
       <div class="space-y-2">
         <DocumentShareBar :filename="overview?.code ?? 'BR'" :message="brMessage" :contacts="brContacts" />
+        <Button v-if="pending && canReceive" class="w-full" variant="outline" @click="pickOpen = true">
+          Picking guidé + scan
+        </Button>
         <Button v-if="pending && canReceive" class="w-full" @click="submit">Valider la réception</Button>
       </div>
     </template>
   </Sheet>
+  <LinePickSheet
+    :open="pickOpen"
+    title="Picking réception"
+    mode="receive"
+    confirm-label="Valider la réception"
+    :lines="pickLines"
+    :locations="locations"
+    @close="pickOpen = false"
+    @confirm="onPicked"
+  />
 </template>

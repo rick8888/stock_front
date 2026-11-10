@@ -204,8 +204,12 @@ export class MockPlatformRepository implements PlatformRepository {
     return mutate(() => {
       const invoice = db().platformInvoices.find((item) => item.id === id)
       if (!invoice) throw new Error('Facture introuvable.')
+      if (invoice.status === 'paid') throw new Error('Facture déjà payée.')
+      if (invoice.status !== 'open' && invoice.status !== 'overdue') throw new Error('Cette facture n’est pas payable.')
       invoice.status = 'paid'
       invoice.paidAt = DEMO_TODAY
+      invoice.paymentProvider = 'stub'
+      invoice.paymentRef = `STUB-${uid('pay').slice(-10).toUpperCase()}`
       const overdue = db().platformInvoices.some(
         (item) => item.companyId === invoice.companyId && (item.status === 'overdue' || item.status === 'open'),
       )
@@ -215,6 +219,29 @@ export class MockPlatformRepository implements PlatformRepository {
         subscription.status = 'active'
         if (company && company.status !== 'suspended') company.status = 'active'
       }
+      return {
+        invoice: { ...invoice },
+        payment: {
+          provider: 'stub',
+          paymentRef: invoice.paymentRef,
+          status: 'succeeded',
+        },
+      }
+    })
+  }
+
+  checkout(input: { companyId?: string; planId?: string; interval?: BillingInterval; invoiceId?: string } = {}) {
+    return Promise.resolve({
+      url: `https://checkout.stripe.test/mock?company=${input.companyId ?? ''}&plan=${input.planId ?? ''}`,
+      provider: 'stripe',
+      sessionId: 'cs_mock',
+    })
+  }
+
+  portal(input: { companyId?: string } = {}) {
+    return Promise.resolve({
+      url: `https://billing.stripe.test/mock?company=${input.companyId ?? ''}`,
+      provider: 'stripe',
     })
   }
 }

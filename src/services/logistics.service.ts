@@ -17,5 +17,8 @@ export const logisticsService = {
   updateShipment: (id: string, input: Partial<ShipmentInput>) => logisticsRepository.updateShipment(id, input),
   createShippingNote: (input: ShippingNoteInput) => logisticsRepository.createShippingNote(input),
   updateShippingNote: (id: string, input: Partial<ShippingNoteInput>) => logisticsRepository.updateShippingNote(id, input),
+  assignCarrier: (id: string, input: import('@/repositories/interfaces').ShippingNoteCarrierInput) =>
+    logisticsRepository.assignCarrier(id, input),
+  markLabelPrinted: (id: string) => logisticsRepository.markLabelPrinted(id),
   loadShippingNote: (id: string, userId: string) => logisticsRepository.loadShippingNote(id, userId),
 }

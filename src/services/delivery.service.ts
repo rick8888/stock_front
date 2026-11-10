@@ -6,8 +6,13 @@ export const deliveryService = {
   list: () => deliveryRepository.list(),
   create: (input: DeliveryInput) => deliveryRepository.create(input),
   update: (id: string, input: Partial<DeliveryInput>) => deliveryRepository.update(id, input),
-  updateStatus: (id: string, status: Delivery['status'], note?: string, signedBy?: string) =>
-    deliveryRepository.updateStatus(id, status, note, signedBy),
+  updateStatus: (
+    id: string,
+    status: Delivery['status'],
+    note?: string,
+    signedBy?: string,
+    proof?: import('@/repositories/interfaces').DeliveryProofInput,
+  ) => deliveryRepository.updateStatus(id, status, note, signedBy, proof),
   atRisk: async () => {
     const list = await deliveryRepository.list()
     return list.filter((item) => item.status === 'at_risk' || item.status === 'failed')

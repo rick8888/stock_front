@@ -4,6 +4,7 @@ import AppSidebar from '@/components/layout/AppSidebar.vue'
 import AppTopbar from '@/components/layout/AppTopbar.vue'
 import BottomNav from '@/components/layout/BottomNav.vue'
 import GlobalSearch from '@/components/common/GlobalSearch.vue'
+import OfflineBanner from '@/components/common/OfflineBanner.vue'
 import Sheet from '@/components/ui/Sheet.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 import { useUiStore } from '@/stores/ui'
@@ -35,6 +36,7 @@ const mobileNav = computed(() =>
     <AppSidebar />
     <div class="flex min-w-0 flex-1 flex-col bg-background">
       <AppTopbar />
+      <OfflineBanner />
       <main
         class="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:pb-6"
         :class="isConsole ? 'pb-6' : 'pb-24'"

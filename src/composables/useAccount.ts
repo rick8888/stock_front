@@ -97,8 +97,28 @@ export function useAccount() {
 
   async function payInvoice(id: string) {
     if (!companyId.value) throw new Error('Compte sans entreprise.')
-    await accountService.payInvoice(companyId.value, id)
+    const result = await accountService.payInvoice(companyId.value, id)
+    if (result?.url) {
+      window.location.assign(result.url)
+      return
+    }
     await refreshAll()
+  }
+
+  async function startCheckout(input: { planId?: string; interval?: BillingInterval } = {}) {
+    if (!companyId.value) throw new Error('Compte sans entreprise.')
+    const session = await accountService.checkout({
+      companyId: companyId.value,
+      planId: input.planId,
+      interval: input.interval,
+    })
+    if (session.url) window.location.assign(session.url)
+  }
+
+  async function openPortal() {
+    if (!companyId.value) throw new Error('Compte sans entreprise.')
+    const session = await accountService.portal({ companyId: companyId.value })
+    if (session.url) window.location.assign(session.url)
   }
 
   async function createAdmin(input: UserInput) {
@@ -135,6 +155,8 @@ export function useAccount() {
     updateCompany,
     changeSubscription,
     payInvoice,
+    startCheckout,
+    openPortal,
     createAdmin,
     updateAdmin,
     refresh: refreshAll,

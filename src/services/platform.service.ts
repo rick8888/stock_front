@@ -75,4 +75,12 @@ export const platformService = {
   changeSubscription: (...args: Parameters<typeof platformRepository.changeSubscription>) =>
     platformRepository.changeSubscription(...args),
   payInvoice: (id: string) => platformRepository.payInvoice(id),
+  checkout: (...args: Parameters<typeof platformRepository.checkout>) => platformRepository.checkout(...args),
+  portal: (...args: Parameters<typeof platformRepository.portal>) => platformRepository.portal(...args),
+}
+
+export function openBillingUrl(url?: string) {
+  if (!url) return false
+  window.location.assign(url)
+  return true
 }

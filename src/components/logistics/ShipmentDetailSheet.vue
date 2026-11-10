@@ -76,9 +76,10 @@ const exMessage = computed(() => {
         :remaining="overview.remaining"
         :vehicle="overview.vehicle"
         :markers="overview.markers"
+        :progress="overview.progress"
       />
       <div class="flex items-center justify-between text-xs text-muted-foreground">
-        <p>{{ overview.originName }} → {{ overview.destinationName }}</p>
+        <p>{{ overview.originName }} → {{ overview.destinationName }} · route réelle</p>
         <p class="font-medium text-foreground">{{ overview.progress }} %</p>
       </div>
       <div class="h-1.5 overflow-hidden rounded-full bg-muted">

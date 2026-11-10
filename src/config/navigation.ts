@@ -1,4 +1,4 @@
-import type { PermissionKey, RoleKey } from '@/types'
+import type { PermissionKey, PlanModule, RoleKey } from '@/types'
 import {
   Sparkles,
   Sun,
@@ -30,6 +30,7 @@ export interface NavItem {
   label: string
   icon: LucideIcon
   permission?: PermissionKey
+  module?: PlanModule
   badge?: 'tasks' | 'alerts'
 }
 
@@ -53,18 +54,18 @@ const opsNav: NavSection[] = [
     id: 'operations',
     label: 'Opérations',
     items: [
-      { to: '/stock', label: 'Magasin', icon: Package, permission: 'stock.view' },
-      { to: '/procurement', label: 'Achats', icon: ShoppingCart, permission: 'procurement.view' },
-      { to: '/logistics', label: 'Logistique', icon: Truck, permission: 'delivery.view' },
+      { to: '/stock', label: 'Magasin', icon: Package, permission: 'stock.view', module: 'stock' },
+      { to: '/procurement', label: 'Achats', icon: ShoppingCart, permission: 'procurement.view', module: 'procurement' },
+      { to: '/logistics', label: 'Logistique', icon: Truck, permission: 'delivery.view', module: 'logistics' },
     ],
   },
   {
     id: 'analyse',
     label: 'Analyse',
     items: [
-      { to: '/analytics', label: 'Tableaux de bord', icon: TrendingUp, permission: 'analytics.view' },
-      { to: '/analytics/reports', label: 'Rapports', icon: FileText, permission: 'analytics.view' },
-      { to: '/assistant', label: 'Assistant', icon: Sparkles },
+      { to: '/analytics', label: 'Tableaux de bord', icon: TrendingUp, permission: 'analytics.view', module: 'analytics' },
+      { to: '/analytics/reports', label: 'Rapports', icon: FileText, permission: 'analytics.view', module: 'analytics' },
+      { to: '/assistant', label: 'Assistant', icon: Sparkles, module: 'assistant' },
     ],
   },
 ]
@@ -94,8 +95,10 @@ const adminNav: NavSection[] = [
     items: [
       { to: '/admin', query: { tab: 'users' }, label: 'Utilisateurs', icon: Users, permission: 'user.view' },
       { to: '/admin', query: { tab: 'overview' }, label: 'Entrepôts', icon: Warehouse, permission: 'warehouse.view' },
+      { to: '/admin', query: { tab: 'locations' }, label: 'Emplacements', icon: Warehouse, permission: 'warehouse.view' },
       { to: '/admin', query: { tab: 'products' }, label: 'Produits', icon: Package, permission: 'product.view' },
       { to: '/admin', query: { tab: 'suppliers' }, label: 'Fournisseurs', icon: Building2, permission: 'product.view' },
+      { to: '/admin', query: { tab: 'customers' }, label: 'Clients', icon: Users, permission: 'delivery.view' },
       { to: '/admin', query: { tab: 'categories' }, label: 'Catégories', icon: Tags, permission: 'product.view' },
     ],
   },
@@ -115,9 +118,9 @@ const financeNav: NavSection[] = [
     id: 'finance',
     items: [
       { to: '/today', label: 'Aujourd’hui', icon: Sun },
-      { to: '/finance', label: 'Finance', icon: Wallet, permission: 'finance.view' },
-      { to: '/procurement', query: { tab: 'orders' }, label: 'Achats', icon: ShoppingCart, permission: 'purchase.view' },
-      { to: '/analytics', label: 'Tableaux de bord', icon: TrendingUp, permission: 'analytics.view' },
+      { to: '/finance', label: 'Finance', icon: Wallet, permission: 'finance.view', module: 'finance' },
+      { to: '/procurement', query: { tab: 'orders' }, label: 'Achats', icon: ShoppingCart, permission: 'purchase.view', module: 'purchasing' },
+      { to: '/analytics', label: 'Tableaux de bord', icon: TrendingUp, permission: 'analytics.view', module: 'analytics' },
     ],
   },
 ]

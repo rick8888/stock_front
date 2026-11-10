@@ -51,6 +51,41 @@ export interface ProductInput {
   barcode?: string
   imageUrl?: string
   images?: string[]
+  trackLots?: boolean
+}
+
+export type ReceiptValidateLine = {
+  productId: string
+  received: number
+  lotCode?: string
+  expiryDate?: string
+  locationId?: string
+}
+
+export interface WarehouseLocationInput {
+  warehouseId: string
+  aisle: string
+  rack: string
+  bin: string
+  code?: string
+  type?: import('@/types').LocationType
+  active?: boolean
+}
+
+export interface WarehouseLocationRepository {
+  list(warehouseId?: string): Promise<import('@/types').WarehouseLocation[]>
+  getById(id: string): Promise<import('@/types').WarehouseLocation | null>
+  create(input: WarehouseLocationInput): Promise<import('@/types').WarehouseLocation>
+  update(id: string, input: Partial<WarehouseLocationInput>): Promise<import('@/types').WarehouseLocation>
+}
+
+export interface StockPlacementRepository {
+  list(warehouseId?: string, productId?: string): Promise<import('@/types').StockPlacement[]>
+  pickPath(
+    warehouseId: string,
+    lines: { productId: string; quantity: number; productName?: string; sku?: string }[],
+  ): Promise<import('@/types').PickPathStep[]>
+  suggestPutaway(warehouseId: string, productId: string): Promise<import('@/types').WarehouseLocation | null>
 }
 
 export interface ProductRepository {
@@ -84,7 +119,11 @@ export interface StockRepository {
   ): Promise<void>
   adjust(productId: string, warehouseId: string, quantity: number, userId: string, note: string): Promise<void>
   toggleAssignment(productId: string, warehouseId: string, enabled: boolean): Promise<void>
-  startInventory(warehouseId: string, userId: string): Promise<InventorySession>
+  startInventory(
+    warehouseId: string,
+    userId: string,
+    scope?: import('@/types').InventoryScope,
+  ): Promise<InventorySession>
   saveInventory(id: string, lines: { productId: string; counted: number }[]): Promise<InventorySession>
   submitInventory(id: string, userId: string): Promise<InventorySession>
   completeInventory(id: string, userId: string): Promise<InventorySession>
@@ -137,12 +176,7 @@ export interface ConsultationRepository {
 
 export interface ReceiptRepository {
   list(): Promise<Receipt[]>
-  validate(
-    id: string,
-    received: number,
-    userId: string,
-    lines?: { productId: string; received: number }[],
-  ): Promise<Receipt>
+  validate(id: string, received: number, userId: string, lines?: ReceiptValidateLine[]): Promise<Receipt>
   create(input: Omit<Receipt, 'id'>): Promise<Receipt>
 }
 
@@ -220,17 +254,86 @@ export interface VehicleInput {
 
 export interface ShippingNoteInput {
   warehouseId: string
+  customerId?: string
+  addressId?: string
   client: string
   address: string
   city: string
   lines: DeliveryLineInput[]
   notes?: string
+  carrierId?: string
+  trackingNumber?: string
   createdByUserId?: string
+}
+
+export interface ShippingNoteCarrierInput {
+  carrierId: string
+  trackingNumber?: string
+  book?: boolean
+}
+
+export interface CustomerInput {
+  name: string
+  phone?: string
+  email?: string
+  ice?: string
+  notes?: string
+  active?: boolean
+  addresses: {
+    id?: string
+    label: string
+    address: string
+    city: string
+    isDefault?: boolean
+  }[]
+}
+
+export interface CustomerRepository {
+  list(): Promise<import('@/types').Customer[]>
+  getById(id: string): Promise<import('@/types').Customer | null>
+  create(input: CustomerInput): Promise<import('@/types').Customer>
+  update(id: string, input: Partial<CustomerInput>): Promise<import('@/types').Customer>
+}
+
+export interface StockLotRepository {
+  list(warehouseId?: string, productId?: string): Promise<import('@/types').StockLot[]>
+}
+
+export interface AnalyticsRepository {
+  snapshot(): Promise<{
+    otifRate: number
+    otifDelivered: number
+    otifOnTime: number
+    stockouts: number
+    stockWatch: number
+    delayedOrders: number
+    failedDeliveries: number
+    deliveryCostMad: number
+    costPerDelivery: number
+    issued: number
+    received: number
+    netFlow: number
+    windowDays: number
+  }>
+}
+
+export interface DeliveryProofInput {
+  signedBy?: string
+  signatureDataUrl?: string
+  lat?: number
+  lng?: number
+  signedAt?: string
 }
 
 export interface DeliveryRepository {
   list(): Promise<Delivery[]>
-  updateStatus(id: string, status: Delivery['status'], note?: string, signedBy?: string): Promise<Delivery>
+  updateStatus(
+    id: string,
+    status: Delivery['status'],
+    note?: string,
+    signedBy?: string,
+    proof?: DeliveryProofInput,
+  ): Promise<Delivery>
   create(input: DeliveryInput): Promise<Delivery>
   update(id: string, input: Partial<DeliveryInput>): Promise<Delivery>
 }
@@ -243,6 +346,8 @@ export interface LogisticsRepository {
   shippingNotes(): Promise<ShippingNote[]>
   createShippingNote(input: ShippingNoteInput): Promise<ShippingNote>
   updateShippingNote(id: string, input: Partial<ShippingNoteInput>): Promise<ShippingNote>
+  assignCarrier(id: string, input: ShippingNoteCarrierInput): Promise<ShippingNote>
+  markLabelPrinted(id: string): Promise<ShippingNote>
   updateVehicle(id: string, input: Partial<VehicleInput>): Promise<Vehicle>
   createVehicle(input: VehicleInput): Promise<Vehicle>
   createDriver(input: DriverInput): Promise<Driver>
@@ -333,6 +438,20 @@ export interface PlanInput {
   active: boolean
 }
 
+export interface BillingSession {
+  url: string
+  provider: string
+  sessionId?: string
+}
+
+export interface PlatformPayResult {
+  url?: string
+  sessionId?: string
+  provider?: string
+  invoice?: PlatformInvoice
+  payment?: { provider: string; paymentRef: string; status: string }
+}
+
 export interface PlatformRepository {
   companies(): Promise<Company[]>
   plans(): Promise<SubscriptionPlan[]>
@@ -346,7 +465,9 @@ export interface PlatformRepository {
     companyId: string,
     input: { planId?: string; interval?: BillingInterval; status?: SubscriptionStatus },
   ): Promise<Subscription>
-  payInvoice(id: string): Promise<void>
+  payInvoice(id: string): Promise<PlatformPayResult>
+  checkout(input?: { companyId?: string; planId?: string; interval?: BillingInterval; invoiceId?: string }): Promise<BillingSession>
+  portal(input?: { companyId?: string }): Promise<BillingSession>
 }
 
 export type { PermissionKey }

@@ -27,7 +27,7 @@ import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import { formatTime } from '@/lib/utils'
-import { DEMO_TODAY, dayKey, isoAt } from '@/utils/helpers'
+import { DEMO_TODAY, opsToday, dayKey, isoAt } from '@/utils/helpers'
 import type { Task, TaskPriority } from '@/types'
 
 const { mine, loading, createTask, completeTask } = useTasks()
@@ -45,13 +45,13 @@ const filter = ref<'open' | 'today' | 'overdue' | 'done'>('open')
 
 const openTasks = computed(() => mine.value.filter((item) => item.status !== 'done'))
 const overdue = computed(() =>
-  openTasks.value.filter((item) => dayKey(item.dueAt) < DEMO_TODAY).sort(byDue),
+  openTasks.value.filter((item) => dayKey(item.dueAt) < opsToday()).sort(byDue),
 )
 const today = computed(() =>
-  openTasks.value.filter((item) => dayKey(item.dueAt) === DEMO_TODAY).sort(byDue),
+  openTasks.value.filter((item) => dayKey(item.dueAt) === opsToday()).sort(byDue),
 )
 const later = computed(() =>
-  openTasks.value.filter((item) => dayKey(item.dueAt) > DEMO_TODAY).sort(byDue),
+  openTasks.value.filter((item) => dayKey(item.dueAt) > opsToday()).sort(byDue),
 )
 const done = computed(() =>
   mine.value.filter((item) => item.status === 'done').sort((a, b) => b.dueAt.localeCompare(a.dueAt)),
@@ -101,8 +101,8 @@ function dueLabel(task: Task) {
   const key = dayKey(task.dueAt)
   const time = formatTime(task.dueAt)
   if (task.status === 'done') return time
-  if (key < DEMO_TODAY) return `En retard · ${time}`
-  if (key === DEMO_TODAY) return `Aujourd’hui · ${time}`
+  if (key < opsToday()) return `En retard · ${time}`
+  if (key === opsToday()) return `Aujourd’hui · ${time}`
   return new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(
     new Date(task.dueAt),
   )
@@ -146,7 +146,7 @@ function relatedIcon(type?: string) {
 
 function toneClass(task: Task) {
   if (task.status === 'done') return 'border-l-transparent opacity-60'
-  if (dayKey(task.dueAt) < DEMO_TODAY) return 'border-l-red-500'
+  if (dayKey(task.dueAt) < opsToday()) return 'border-l-red-500'
   if (task.priority === 'high') return 'border-l-amber-500'
   return 'border-l-transparent'
 }
@@ -161,12 +161,12 @@ function resetForm() {
   title.value = ''
   description.value = ''
   priority.value = 'medium'
-  dueAt.value = `${DEMO_TODAY}T18:00`
+  dueAt.value = `${opsToday()}T18:00`
 }
 
 async function add() {
   await run(async () => {
-    const when = dueAt.value ? new Date(dueAt.value).toISOString() : isoAt(new Date(`${DEMO_TODAY}T00:00:00`), 18)
+    const when = dueAt.value ? new Date(dueAt.value).toISOString() : isoAt(new Date(`${opsToday()}T00:00:00`), 18)
     await createTask(title.value.trim() || 'Nouvelle tâche', when, priority.value, description.value.trim())
     resetForm()
     open.value = false

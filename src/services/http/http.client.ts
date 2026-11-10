@@ -1,5 +1,17 @@
 import { apiConfig } from '@/config/api'
 import { beginAction, endAction } from '@/composables/useActionBusy'
+import {
+  cacheGet,
+  cacheSet,
+  canQueueMutation,
+  canServeFromCache,
+  enqueueOutbox,
+  isOnline,
+  mutationLabel,
+  optimisticDeliveryFromBody,
+  optimisticInventoryFromBody,
+  patchCachedList,
+} from '@/offline/outbox'
 
 const TOKEN_KEY = 'bravo-stock-access-token'
 
@@ -26,6 +38,25 @@ export function tokenFromPayload(payload: { access_token?: string; accessToken?:
   return payload?.access_token || payload?.accessToken || null
 }
 
+function pathOnly(path: string) {
+  return path.startsWith('http') ? new URL(path).pathname.replace(/^\/api/, '') : path
+}
+
+function applyOptimisticLocalCache(path: string, optimistic: unknown) {
+  if (!optimistic || typeof optimistic !== 'object' || !('id' in optimistic)) return
+  const id = String((optimistic as { id: string }).id)
+  if (/^\/deliveries\//.test(path)) {
+    patchCachedList('/deliveries', id, optimistic as Record<string, unknown>)
+  }
+  if (/^\/stock\/inventories\//.test(path)) {
+    patchCachedList('/stock/inventories', id, optimistic as Record<string, unknown>)
+  }
+}
+
+function buildOptimistic(path: string, body?: string) {
+  return optimisticDeliveryFromBody(path, body) ?? optimisticInventoryFromBody(path, body)
+}
+
 export const httpClient = {
   async request<T>(path: string, init?: RequestInit): Promise<T> {
     const headers = new Headers(init?.headers)
@@ -38,6 +69,22 @@ export const httpClient = {
 
     const method = (init?.method ?? 'GET').toUpperCase()
     const isMutation = method !== 'GET' && method !== 'HEAD'
+    const cleanPath = pathOnly(path)
+    const bodyText = typeof init?.body === 'string' ? init.body : undefined
+
+    if (isMutation && !isOnline() && canQueueMutation(method, cleanPath)) {
+      const optimistic = buildOptimistic(cleanPath, bodyText)
+      const entry = enqueueOutbox({
+        path: cleanPath,
+        method,
+        body: bodyText,
+        label: mutationLabel(method, cleanPath, bodyText),
+        optimistic,
+      })
+      applyOptimisticLocalCache(cleanPath, entry.optimistic)
+      return (entry.optimistic ?? { queued: true, id: entry.id }) as T
+    }
+
     if (isMutation) beginAction()
     try {
       const response = await fetch(`${apiConfig.baseUrl}${path}`, { ...init, headers })
@@ -53,7 +100,33 @@ export const httpClient = {
         throw new ApiError(message, response.status)
       }
 
+      if (!isMutation && canServeFromCache(method, cleanPath)) {
+        cacheSet(cleanPath, payload)
+      }
+
       return payload as T
+    } catch (err) {
+      if (err instanceof ApiError) throw err
+
+      if (isMutation && canQueueMutation(method, cleanPath)) {
+        const optimistic = buildOptimistic(cleanPath, bodyText)
+        const entry = enqueueOutbox({
+          path: cleanPath,
+          method,
+          body: bodyText,
+          label: mutationLabel(method, cleanPath, bodyText),
+          optimistic,
+        })
+        applyOptimisticLocalCache(cleanPath, entry.optimistic)
+        return (entry.optimistic ?? { queued: true, id: entry.id }) as T
+      }
+
+      if (!isMutation && canServeFromCache(method, cleanPath)) {
+        const cached = cacheGet<T>(cleanPath)
+        if (cached !== null) return cached
+      }
+
+      throw new ApiError(isOnline() ? 'Réseau indisponible' : 'Hors ligne', 0)
     } finally {
       if (isMutation) endAction()
     }

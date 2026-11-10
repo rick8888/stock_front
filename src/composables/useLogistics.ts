@@ -3,13 +3,17 @@ import { deliveryService } from '@/services/delivery.service'
 import { logisticsService } from '@/services/logistics.service'
 import { useAsyncList } from './useAsyncList'
 import { useCurrentUser } from './useAuth'
-import { DEMO_TODAY } from '@/utils/helpers'
+import { opsToday } from '@/utils/helpers'
 import type { DeliveryInput, DriverInput, RouteInput, ShipmentInput, ShippingNoteInput, VehicleInput } from '@/repositories/interfaces'
 
 export function useDeliveries() {
   const list = useAsyncList(() => deliveryService.list())
-  async function confirmDelivery(id: string, signedBy?: string) {
-    await deliveryService.updateStatus(id, 'delivered', undefined, signedBy)
+  async function confirmDelivery(
+    id: string,
+    signedBy?: string,
+    proof?: import('@/repositories/interfaces').DeliveryProofInput,
+  ) {
+    await deliveryService.updateStatus(id, 'delivered', undefined, signedBy, proof)
     await list.refresh(true)
   }
   async function failDelivery(id: string, reason: string) {
@@ -138,6 +142,16 @@ export function useShippingNotes() {
     await list.refresh(true)
     return updated
   }
+  async function assignCarrier(id: string, input: import('@/repositories/interfaces').ShippingNoteCarrierInput) {
+    const updated = await logisticsService.assignCarrier(id, input)
+    await list.refresh(true)
+    return updated
+  }
+  async function markLabelPrinted(id: string) {
+    const updated = await logisticsService.markLabelPrinted(id)
+    await list.refresh(true)
+    return updated
+  }
   async function loadShippingNote(id: string, userId: string) {
     const updated = await logisticsService.loadShippingNote(id, userId)
     await list.refresh(true)
@@ -149,6 +163,8 @@ export function useShippingNotes() {
     error: list.error,
     createShippingNote,
     updateShippingNote,
+    assignCarrier,
+    markLabelPrinted,
     loadShippingNote,
     refresh: list.refresh,
   }
@@ -156,7 +172,7 @@ export function useShippingNotes() {
 
 export function useDriverToday() {
   const { currentUser } = useCurrentUser()
-  const day = ref(DEMO_TODAY)
+  const day = ref(opsToday())
   const deliveriesList = useAsyncList(async () => {
     const driverId = currentUser.value?.driverId
     if (!driverId) return []
@@ -173,7 +189,7 @@ export function useDriverToday() {
   const myShipments = computed(() => shipmentsList.data.value.filter((item) => item.driverId === driverId.value))
 
   const days = computed(() => {
-    const keys = new Set<string>([DEMO_TODAY])
+    const keys = new Set<string>([opsToday()])
     myDeliveries.value.forEach((item) => keys.add(item.scheduledAt.slice(0, 10)))
     myRoutes.value.forEach((item) => keys.add(item.date))
     myShipments.value.forEach((item) => keys.add(item.date.slice(0, 10)))
@@ -199,13 +215,19 @@ export function useDriverToday() {
     () => deliveriesList.loading.value || routesList.loading.value || shipmentsList.loading.value,
   )
 
-  async function completeDelivery(id: string, signedBy?: string) {
-    await deliveryService.updateStatus(id, 'delivered', undefined, signedBy)
+  async function completeDelivery(
+    id: string,
+    signedBy?: string,
+    proof?: import('@/repositories/interfaces').DeliveryProofInput,
+  ) {
+    const result = await deliveryService.updateStatus(id, 'delivered', undefined, signedBy, proof)
     await deliveriesList.refresh(true)
+    return result
   }
   async function failDelivery(id: string, reason: string) {
-    await deliveryService.updateStatus(id, 'failed', reason)
+    const result = await deliveryService.updateStatus(id, 'failed', reason)
     await deliveriesList.refresh(true)
+    return result
   }
   async function completeCurrent() {
     if (!next.value) return

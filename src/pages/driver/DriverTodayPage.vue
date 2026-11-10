@@ -17,8 +17,11 @@ import EmptyState from '@/components/feedback/EmptyState.vue'
 import DeliveryDetailSheet from '@/components/logistics/DeliveryDetailSheet.vue'
 import RouteDetailSheet from '@/components/logistics/RouteDetailSheet.vue'
 import ShipmentDetailSheet from '@/components/logistics/ShipmentDetailSheet.vue'
+import PodSignaturePad from '@/components/logistics/PodSignaturePad.vue'
+import { toast } from 'vue-sonner'
 import { formatTime } from '@/lib/utils'
-import { DEMO_TODAY } from '@/utils/helpers'
+import { opsToday } from '@/utils/helpers'
+import { isOnline } from '@/offline/outbox'
 import { DELIVERY_LABEL, ROUTE_LABEL, SHIPMENT_LABEL } from '@/config/logistics'
 import { deliveryOverview, routeOverview, shipmentOverview } from '@/services/logistics.overview'
 import type { DeliveryStatus, RouteStatus, ShipmentStatus } from '@/types'
@@ -61,7 +64,7 @@ function setView(nextView: View) {
 const selectedDeliveryId = ref<string | null>(null)
 const selectedRouteId = ref<string | null>(null)
 const selectedShipmentId = ref<string | null>(null)
-const isToday = computed(() => day.value === DEMO_TODAY)
+const isToday = computed(() => day.value === opsToday())
 const canConfirm = computed(() => can('delivery.confirm') && isToday.value)
 
 const ctx = computed(() => ({
@@ -93,7 +96,7 @@ const tabs = computed(() => [
 ])
 
 function dayLabel(key: string) {
-  if (key === DEMO_TODAY) return 'Aujourd’hui'
+  if (key === opsToday()) return 'Aujourd’hui'
   return new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }).format(
     new Date(`${key}T12:00:00`),
   )
@@ -138,31 +141,72 @@ function stopCount(routeId: string) {
 const proofOpen = ref(false)
 const failOpen = ref(false)
 const signedBy = ref('')
+const signatureDataUrl = ref('')
+const geoLabel = ref('Localisation en cours…')
+const geoCoords = ref<{ lat: number; lng: number } | null>(null)
 const failReason = ref('Client absent')
 const proofTarget = ref<string | null>(null)
+
+function captureGeo() {
+  geoCoords.value = null
+  geoLabel.value = 'Localisation en cours…'
+  if (!navigator.geolocation) {
+    geoLabel.value = 'GPS indisponible sur cet appareil'
+    return
+  }
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      geoCoords.value = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      }
+      geoLabel.value = `${geoCoords.value.lat.toFixed(5)}, ${geoCoords.value.lng.toFixed(5)}`
+    },
+    () => {
+      geoLabel.value = 'GPS refusé — la preuve sera enregistrée sans position'
+    },
+    { enableHighAccuracy: true, timeout: 8000 },
+  )
+}
 
 function openProof(id?: string) {
   proofTarget.value = id ?? next.value?.id ?? null
   const row = deliveries.value.find((item) => item.id === proofTarget.value)
   signedBy.value = row?.client ?? ''
+  signatureDataUrl.value = ''
+  captureGeo()
   proofOpen.value = true
 }
 
 async function submitProof() {
-  if (!proofTarget.value || !canConfirm.value) return
+  if (!proofTarget.value || !canConfirm.value || !signedBy.value.trim() || !signatureDataUrl.value) return
   await run(async () => {
-    await completeDelivery(proofTarget.value!, signedBy.value.trim() || 'Destinataire')
+    const result = await completeDelivery(proofTarget.value!, signedBy.value.trim(), {
+      signedBy: signedBy.value.trim(),
+      signatureDataUrl: signatureDataUrl.value,
+      lat: geoCoords.value?.lat,
+      lng: geoCoords.value?.lng,
+      signedAt: new Date().toISOString(),
+    })
     proofOpen.value = false
     selectedDeliveryId.value = null
+    if (!isOnline() || (result && typeof result === 'object' && '_offlineQueued' in result)) {
+      toast.message('POD enregistré hors ligne', { description: 'Synchronisation dès le retour réseau.' })
+    } else {
+      toast.success('Livraison confirmée')
+    }
   })
 }
 
 async function submitFail() {
   if (!proofTarget.value || !canConfirm.value) return
   await run(async () => {
-    await failDelivery(proofTarget.value!, failReason.value.trim() || 'Échec de livraison')
+    const result = await failDelivery(proofTarget.value!, failReason.value.trim() || 'Échec de livraison')
     failOpen.value = false
     selectedDeliveryId.value = null
+    if (!isOnline() || (result && typeof result === 'object' && '_offlineQueued' in result)) {
+      toast.message('Échec mis en file hors ligne', { description: 'Synchronisation dès le retour réseau.' })
+    }
   })
 }
 
@@ -338,12 +382,19 @@ function openDelivery(id: string) {
     />
     <Sheet :open="proofOpen" title="Preuve de livraison" @close="proofOpen = false">
       <div class="space-y-3">
-        <Label>Signé par</Label>
-        <Input v-model="signedBy" class="mt-1.5" placeholder="Nom du destinataire" />
-        <p class="text-xs text-muted-foreground">La signature clôture l’arrêt. En cas d’échec, le stock chargé revient au magasin.</p>
+        <div>
+          <Label>Signé par</Label>
+          <Input v-model="signedBy" class="mt-1.5" placeholder="Nom du destinataire" />
+        </div>
+        <div>
+          <Label>Signature</Label>
+          <PodSignaturePad v-model="signatureDataUrl" class="mt-1.5" />
+        </div>
+        <p class="text-xs text-muted-foreground">GPS : {{ geoLabel }}</p>
+        <p class="text-xs text-muted-foreground">La preuve clôture l’arrêt. En cas d’échec, le stock chargé revient au magasin.</p>
       </div>
       <template #footer>
-        <Button class="w-full" :disabled="!signedBy.trim()" @click="submitProof">Confirmer</Button>
+        <Button class="w-full" :disabled="!signedBy.trim() || !signatureDataUrl" @click="submitProof">Confirmer</Button>
       </template>
     </Sheet>
     <Sheet :open="failOpen" title="Échec de livraison" @close="failOpen = false">

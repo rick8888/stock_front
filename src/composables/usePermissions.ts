@@ -1,10 +1,12 @@
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useEntitlementsStore } from '@/stores/entitlements'
 import { ROLE_PERMISSIONS } from '@/mocks/roles'
-import type { PermissionKey } from '@/types'
+import type { PermissionKey, PlanModule } from '@/types'
 
 export function usePermissions() {
   const store = useAuthStore()
+  const entitlements = useEntitlementsStore()
 
   const permissions = computed<PermissionKey[]>(() => {
     const user = store.currentUser
@@ -14,6 +16,10 @@ export function usePermissions() {
 
   function can(permission: PermissionKey): boolean {
     return permissions.value.includes(permission)
+  }
+
+  function hasModule(module: PlanModule): boolean {
+    return entitlements.hasModule(module)
   }
 
   function canOnWarehouse(permission: PermissionKey, warehouseId: string): boolean {
@@ -37,5 +43,5 @@ export function usePermissions() {
     return user.warehouseIds
   }
 
-  return { permissions, can, canOnWarehouse, inScopeWarehouse, scopedWarehouseIds }
+  return { permissions, can, hasModule, canOnWarehouse, inScopeWarehouse, scopedWarehouseIds }
 }

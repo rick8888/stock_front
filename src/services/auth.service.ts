@@ -2,18 +2,21 @@ import type { User } from '@/types'
 import { apiConfig } from '@/config/api'
 import { authRepository, userRepository } from '@/repositories'
 import { useAuthStore } from '@/stores/auth'
+import { useEntitlementsStore } from '@/stores/entitlements'
 import { ApiError, getAccessToken } from '@/services/http/http.client'
 
 export const authService = {
   async login(email: string, password: string): Promise<User> {
     const user = await authRepository.login(email, password)
     useAuthStore().setUser(user)
+    await useEntitlementsStore().refresh()
     return user
   },
 
   async logout(): Promise<void> {
     await authRepository.logout()
     useAuthStore().setUser(null)
+    await useEntitlementsStore().refresh()
   },
 
   async restore(): Promise<User | null> {
@@ -28,6 +31,7 @@ export const authService = {
         const user = await authRepository.restore('')
         if (user) {
           store.setUser(user)
+          await useEntitlementsStore().refresh()
           return user
         }
         store.setUser(null)
@@ -48,8 +52,10 @@ export const authService = {
     }
     try {
       const user = await authRepository.restore(id)
-      if (user) store.setUser(user)
-      else store.setUser(null)
+      if (user) {
+        store.setUser(user)
+        await useEntitlementsStore().refresh()
+      } else store.setUser(null)
       return user
     } catch {
       return store.currentUser

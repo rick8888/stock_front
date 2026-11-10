@@ -12,7 +12,11 @@ import type {
   Vehicle,
   Warehouse,
 } from '@/types'
-import { chainPath, pointAlong, splitPath } from '@/utils/geo'
+import { pointAlong, splitPath } from '@/utils/geo'
+
+function waypointPath(points: GeoPoint[]) {
+  return points.filter(Boolean)
+}
 
 export interface LogisticsContext {
   warehouses: Warehouse[]
@@ -129,7 +133,7 @@ function stopTone(delivery: Delivery): MapMarker['tone'] {
 export function deliveryOverview(delivery: Delivery, ctx: LogisticsContext): DeliveryOverview {
   const warehouse = warehouseOf(ctx, delivery.warehouseId)
   const origin = warehousePoint(ctx, delivery.warehouseId)
-  const path = delivery.path?.length ? delivery.path : chainPath([origin, delivery.location])
+  const path = delivery.path?.length ? delivery.path : waypointPath([origin, delivery.location])
   const tracking = trackingFrom(path, delivery.progress, delivery.currentPosition)
   const route = ctx.routes.find((item) => item.id === delivery.routeId)
   return {
@@ -176,7 +180,7 @@ export function shipmentOverview(shipment: Shipment, ctx: LogisticsContext): Shi
       ? shipment.path
       : route?.path?.length
         ? route.path
-        : chainPath([origin, ...stops.map((item) => item.location), destination].filter(Boolean))
+        : waypointPath([origin, ...stops.map((item) => item.location), destination].filter(Boolean))
   const progress = shipment.progress ?? route?.progress ?? 0
   const tracking = trackingFrom(path, progress, shipment.currentPosition ?? route?.currentPosition)
   const stopMarkers: MapMarker[] = stops.map((stop) => ({
@@ -229,7 +233,7 @@ export function routeOverview(route: Route, ctx: LogisticsContext): RouteOvervie
   const stops = ctx.deliveries
     .filter((item) => item.routeId === route.id)
     .sort((a, b) => a.sequence - b.sequence)
-  const path = route.path?.length ? route.path : chainPath([origin, ...stops.map((item) => item.location)])
+  const path = route.path?.length ? route.path : waypointPath([origin, ...stops.map((item) => item.location)])
   const active = stops.find((item) => item.status === 'in_transit' || item.status === 'at_risk')
   const doneCount = stops.filter((item) => item.status === 'delivered').length
   const progress =

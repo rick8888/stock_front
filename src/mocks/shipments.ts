@@ -1,7 +1,7 @@
 import type { Shipment } from '@/types'
-import { chainPath, pointAlong } from '../utils/geo'
+import { pointAlong } from '../utils/geo'
 import { deliveries } from './deliveries'
-import { HIGHWAY_WAYPOINTS, WAREHOUSE_GEO } from './geo'
+import { WAREHOUSE_GEO } from './geo'
 import { routes } from './routes'
 
 function noteIdsForRoute(routeId: string) {
@@ -29,8 +29,6 @@ const rabat = WAREHOUSE_GEO['wh-rabat']
 const marrakech = WAREHOUSE_GEO['wh-marrakech']
 const rt26a = routes.find((item) => item.id === 'rt-26a')
 const rt26b = routes.find((item) => item.id === 'rt-26b')
-const highway = chainPath(HIGHWAY_WAYPOINTS, 6)
-
 export const shipments: Shipment[] = [
   {
     id: 'shp-88',
@@ -79,7 +77,7 @@ export const shipments: Shipment[] = [
     status: 'preparing',
     origin: rabat,
     destinationLocation: deliveries.find((item) => item.id === 'dlv-490')?.location ?? rabat,
-    path: chainPath([rabat, deliveries.find((item) => item.id === 'dlv-490')?.location ?? rabat]),
+    path: [rabat, deliveries.find((item) => item.id === 'dlv-490')?.location ?? rabat],
     currentPosition: rabat,
     progress: 0,
     lines: linesFromRoute('rt-27b'),
@@ -97,8 +95,8 @@ export const shipments: Shipment[] = [
     status: 'delayed',
     origin: casa,
     destinationLocation: marrakech,
-    path: highway,
-    currentPosition: pointAlong(highway, 0.42),
+    path: [casa, marrakech],
+    currentPosition: pointAlong([casa, marrakech], 0.42),
     progress: 42,
     notes: 'Contrôle gendarmerie à la sortie de Settat — 40 min de retard.',
     eta: '2026-08-26T11:40:00.000Z',

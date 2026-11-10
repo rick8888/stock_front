@@ -3,6 +3,8 @@ import type { ReceiptRepository } from '@/repositories/interfaces'
 import { uid } from '@/utils/helpers'
 import { db, mutate, withLatency } from './db'
 import { ALERT_ROLES } from '@/config/alerts'
+import { receiveLot } from '@/utils/stockLots'
+import { putawayPlacement } from '@/utils/placements'
 
 export class MockReceiptRepository implements ReceiptRepository {
   list() {
@@ -45,7 +47,12 @@ export class MockReceiptRepository implements ReceiptRepository {
     })
   }
 
-  validate(id: string, received: number, userId: string, lines?: { productId: string; received: number }[]) {
+  validate(
+    id: string,
+    received: number,
+    userId: string,
+    lines?: { productId: string; received: number; lotCode?: string; expiryDate?: string; locationId?: string }[],
+  ) {
     return mutate(() => {
       const receipt = db().receipts.find((item) => item.id === id)
       if (!receipt) throw new Error('Réception introuvable')
@@ -54,9 +61,16 @@ export class MockReceiptRepository implements ReceiptRepository {
       const nextItems = (order?.items ?? receipt.items ?? []).map((item) => {
         const productId = 'productId' in item ? item.productId : ''
         const expected = 'expected' in item ? item.expected : item.quantity
-        const incoming = lines?.find((line) => line.productId === productId)?.received
-        const receivedQty = incoming ?? expected
-        return { productId, expected, received: receivedQty }
+        const incoming = lines?.find((line) => line.productId === productId)
+        const receivedQty = incoming?.received ?? expected
+        return {
+          productId,
+          expected,
+          received: receivedQty,
+          lotCode: incoming?.lotCode,
+          expiryDate: incoming?.expiryDate,
+          locationId: incoming?.locationId,
+        }
       })
       if (lines?.length && !nextItems.length) {
         nextItems.push(
@@ -64,6 +78,9 @@ export class MockReceiptRepository implements ReceiptRepository {
             productId: line.productId,
             expected: line.received,
             received: line.received,
+            lotCode: line.lotCode,
+            expiryDate: line.expiryDate,
+            locationId: line.locationId,
           })),
         )
       }
@@ -94,6 +111,19 @@ export class MockReceiptRepository implements ReceiptRepository {
           (row) => row.productId === line.productId && row.warehouseId === receipt.warehouseId,
         )
         if (stock) stock.quantity += delta
+        const product = db().products.find((item) => item.id === line.productId)
+        let lotId: string | undefined
+        if (line.lotCode || line.expiryDate || product?.trackLots) {
+          lotId = receiveLot(
+            line.productId,
+            receipt.warehouseId,
+            delta,
+            line.lotCode,
+            line.expiryDate,
+            line.locationId,
+          ).id
+        }
+        putawayPlacement(line.productId, receipt.warehouseId, delta, line.locationId, lotId)
         db().stockMovements.unshift({
           id: uid('mov'),
           productId: line.productId,

@@ -12,6 +12,7 @@ const props = defineProps<{
   session: InventorySession | null
   products: Product[]
   warehouseName?: string
+  scopeLabel?: string
   error?: string | null
   canCount?: boolean
   canApprove?: boolean
@@ -78,7 +79,12 @@ const statusLabel = computed(() => {
 </script>
 
 <template>
-  <Sheet :open="open && !!session" :title="`Inventaire · ${warehouseName ?? ''}`" wide @close="emit('close')">
+  <Sheet
+    :open="open && !!session"
+    :title="`${session?.mode === 'partial' ? 'Cycle count' : 'Inventaire'} · ${warehouseName ?? ''}`"
+    wide
+    @close="emit('close')"
+  >
     <div v-if="session" class="space-y-3">
       <p class="text-sm text-muted-foreground">
         <template v-if="session.status === 'in_progress'">
@@ -93,6 +99,8 @@ const statusLabel = computed(() => {
         <Badge :variant="session.status === 'completed' ? 'success' : session.status === 'pending_review' ? 'warning' : 'info'">
           {{ statusLabel }}
         </Badge>
+        <Badge variant="outline">{{ session.mode === 'partial' ? 'Cycle count' : 'Complet' }}</Badge>
+        <span v-if="scopeLabel" class="text-xs text-muted-foreground">{{ scopeLabel }}</span>
         <span v-if="countedByName" class="text-xs text-muted-foreground">Compté par {{ countedByName }}</span>
       </div>
 

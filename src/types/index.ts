@@ -116,6 +116,75 @@ export interface Product {
   barcode?: string
   imageUrl?: string
   images?: string[]
+  trackLots?: boolean
+}
+
+export interface CustomerAddress {
+  id: string
+  label: string
+  address: string
+  city: string
+  isDefault?: boolean
+}
+
+export interface Customer {
+  id: string
+  name: string
+  phone?: string
+  email?: string
+  ice?: string
+  notes?: string
+  active: boolean
+  companyId?: string
+  addresses: CustomerAddress[]
+}
+
+export interface StockLot {
+  id: string
+  productId: string
+  warehouseId: string
+  lotCode: string
+  expiryDate?: string
+  locationId?: string
+  quantity: number
+  companyId?: string
+}
+
+export type LocationType = 'pick' | 'bulk' | 'staging'
+
+export interface WarehouseLocation {
+  id: string
+  warehouseId: string
+  code: string
+  aisle: string
+  rack: string
+  bin: string
+  type: LocationType
+  active: boolean
+  companyId?: string
+}
+
+export interface StockPlacement {
+  id: string
+  productId: string
+  warehouseId: string
+  locationId: string
+  lotId?: string
+  quantity: number
+  companyId?: string
+}
+
+export interface PickPathStep {
+  productId: string
+  productName: string
+  sku?: string
+  quantity: number
+  locationId?: string | null
+  locationCode?: string | null
+  aisle?: string | null
+  rack?: string | null
+  bin?: string | null
+  unlocated?: boolean
 }
 
 export interface Warehouse {
@@ -200,10 +269,22 @@ export interface InventoryLine {
 
 export type InventoryStatus = 'in_progress' | 'pending_review' | 'completed'
 
+export type InventoryMode = 'full' | 'partial'
+
+/** Filtres d’un cycle count (AND). Vide = plein entrepôt. */
+export interface InventoryScope {
+  categoryId?: string
+  locationId?: string
+  aisle?: string
+  productIds?: string[]
+}
+
 export interface InventorySession {
   id: string
   warehouseId: string
   status: InventoryStatus
+  mode?: InventoryMode
+  scope?: InventoryScope
   counted: number
   expected: number
   startedAt: string
@@ -352,6 +433,9 @@ export interface ReceiptLine {
   productId: string
   expected: number
   received: number
+  lotCode?: string
+  expiryDate?: string
+  locationId?: string
 }
 
 export interface Receipt {
@@ -396,10 +480,23 @@ export interface MapMarker {
   tone?: MapMarkerTone
 }
 
+export type CarrierKind = 'own_fleet' | 'parcel' | 'freight'
+
+export interface Carrier {
+  id: string
+  name: string
+  code: string
+  kind: CarrierKind
+  trackingUrlTemplate?: string
+  active: boolean
+}
+
 export interface ShippingNote {
   id: string
   code: string
   warehouseId: string
+  customerId?: string
+  addressId?: string
   client: string
   address: string
   city: string
@@ -408,10 +505,18 @@ export interface ShippingNote {
   deliveryId?: string
   shipmentId?: string
   notes?: string
+  carrierId?: string
+  carrierName?: string
+  trackingNumber?: string
+  labelPrintedAt?: string
+  bookedAt?: string
   createdAt?: string
   createdByUserId?: string
   loadedAt?: string
   loadedByUserId?: string
+  stockReserved?: boolean
+  inTransitToWarehouseId?: string
+  stockReceivedAt?: string
 }
 
 export type ShipmentStatus = 'preparing' | 'in_transit' | 'done' | 'delayed'
@@ -461,6 +566,8 @@ export interface Delivery {
   lines: DeliveryNoteLine[]
   signedAt?: string
   signedBy?: string
+  signatureDataUrl?: string
+  podLocation?: GeoPoint & { at?: string }
   eta?: string
   shippingNoteId?: string
 }
@@ -671,6 +778,8 @@ export interface SubscriptionPlan {
   maxWarehouses: number
   modules: PlanModule[]
   active: boolean
+  stripePriceMonthly?: string
+  stripePriceYearly?: string
 }
 
 export interface Subscription {
@@ -683,6 +792,8 @@ export interface Subscription {
   currentPeriodEnd: string
   trialEndsAt?: string
   seats: number
+  stripeCustomerId?: string
+  stripeSubscriptionId?: string
 }
 
 export interface PlatformInvoice {
@@ -695,6 +806,25 @@ export interface PlatformInvoice {
   issuedAt: string
   dueDate: string
   paidAt?: string
+  paymentProvider?: string
+  paymentRef?: string
+}
+
+export interface Entitlements {
+  companyId: string | null
+  planId: string | null
+  planName: string
+  status: string
+  modules: PlanModule[]
+  maxUsers: number
+  maxWarehouses: number
+  usersCount: number
+  warehousesCount: number
+  seats: number
+  unlimitedUsers: boolean
+  unlimitedWarehouses: boolean
+  canAddUser: boolean
+  canAddWarehouse: boolean
 }
 
 export interface MockDatabase {
@@ -718,6 +848,10 @@ export interface MockDatabase {
   vehicles: Vehicle[]
   drivers: Driver[]
   shippingNotes: ShippingNote[]
+  customers: Customer[]
+  stockLots: StockLot[]
+  warehouseLocations: WarehouseLocation[]
+  stockPlacements: StockPlacement[]
   tasks: Task[]
   alerts: Alert[]
   planning: PlanningEvent[]

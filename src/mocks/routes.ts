@@ -1,5 +1,5 @@
 import type { Route } from '@/types'
-import { chainPath, pointAlong } from '../utils/geo'
+import { pointAlong } from '../utils/geo'
 import { deliveries } from './deliveries'
 import { WAREHOUSE_GEO } from './geo'
 
@@ -11,7 +11,7 @@ function buildRoute(
     .filter((item) => item.routeId === route.id)
     .sort((a, b) => a.sequence - b.sequence)
     .map((item) => item.location)
-  const path = chainPath([warehouse, ...stops])
+  const path = [warehouse, ...stops]
   const delivered = stops.length
     ? deliveries.filter((item) => item.routeId === route.id && item.status === 'delivered').length
     : 0

@@ -19,18 +19,32 @@ import StockStatusBadge from '@/components/stock/StockStatusBadge.vue'
 import StockArticleSheet from '@/components/stock/StockArticleSheet.vue'
 import StockMoveSheet from '@/components/stock/StockMoveSheet.vue'
 import InventorySessionSheet from '@/components/stock/InventorySessionSheet.vue'
+import InventoryStartSheet from '@/components/stock/InventoryStartSheet.vue'
 import ReceiveOrderSheet from '@/components/stock/ReceiveOrderSheet.vue'
 import ProductFormSheet from '@/components/stock/ProductFormSheet.vue'
 import BarcodeScanSheet from '@/components/stock/BarcodeScanSheet.vue'
 import { useShippingNotes } from '@/composables/useLogistics'
 import RequestFormSheet from '@/components/purchasing/RequestFormSheet.vue'
 import ShippingNoteFormSheet from '@/components/logistics/ShippingNoteFormSheet.vue'
+import { useCustomers } from '@/composables/useCustomers'
+import { useLocations } from '@/composables/useLocations'
 import { useActionBusy } from '@/composables/useActionBusy'
+import { toast } from 'vue-sonner'
 import { formatNumber, formatDateTime } from '@/lib/utils'
 import { MOVEMENT_LABEL } from '@/config/stock'
-import { DEMO_TODAY } from '@/utils/helpers'
+import { isOnline } from '@/offline/outbox'
+import { opsToday } from '@/utils/helpers'
+import { inventoryScopeLabel } from '@/utils/inventoryScope'
 import type { ProductInput, ShippingNoteInput } from '@/repositories/interfaces'
-import type { InventorySession, Product, StockHealth, StockMovementType, StockOverviewRow } from '@/types'
+import type {
+  InventoryScope,
+  InventorySession,
+  Product,
+  StockHealth,
+  StockMovementType,
+  StockOverviewRow,
+  Warehouse,
+} from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,9 +82,15 @@ const {
 } = useStock()
 const { createRequest } = useProcurement()
 const { createShippingNote } = useShippingNotes()
+const { customers } = useCustomers()
 const { suppliers } = useSuppliers()
+const { locations: apiLocations } = useLocations()
 const store = useDataStore()
 const { busy, run, isBusy } = useActionBusy()
+
+const inventoryLocations = computed(() =>
+  apiLocations.value.length ? apiLocations.value : store.db.warehouseLocations,
+)
 
 const query = ref('')
 const warehouseId = ref('all')
@@ -91,6 +111,8 @@ const scanOpen = ref(false)
 const orderOpen = ref(false)
 const orderError = ref('')
 const inventoryOpen = ref(false)
+const inventoryStartOpen = ref(false)
+const inventoryStartWarehouse = ref<Warehouse | null>(null)
 const inventorySession = ref<InventorySession | null>(null)
 const inventoryError = ref('')
 const closeError = ref('')
@@ -104,7 +126,10 @@ const tab = computed(() => (typeof route.query.tab === 'string' ? route.query.ta
 const headers: Record<string, { title: string; description: string }> = {
   overview: { title: 'Stock', description: 'Ce qui est critique d’abord. Le détail ensuite.' },
   movements: { title: 'Mouvements', description: 'Journal complet, filtrable et exportable.' },
-  inventory: { title: 'Inventaire', description: 'Comptez, constatez l’écart, ajustez avec une trace.' },
+  inventory: {
+    title: 'Inventaire',
+    description: 'Complet ou cycle count ciblé — comptez, constatez l’écart, ajustez.',
+  },
   close: { title: 'Clôture', description: 'Pointer réceptions, inventaire et sorties avant de fermer la journée.' },
 }
 const header = computed(() => headers[tab.value] ?? headers.overview)
@@ -277,16 +302,31 @@ const visibleMovements = computed(() =>
   }),
 )
 
-async function onStartInventory(warehouseId: string) {
+function openStartInventory(warehouseId: string) {
+  inventoryError.value = ''
+  inventoryStartWarehouse.value = warehouses.value.find((item) => item.id === warehouseId) ?? null
+  inventoryStartOpen.value = true
+}
+
+async function onStartInventory(payload: { warehouseId: string; scope?: InventoryScope }) {
+  inventoryStartOpen.value = false
   await run(async () => {
     inventoryError.value = ''
     try {
-      inventorySession.value = await startInventory(warehouseId)
+      inventorySession.value = await startInventory(payload.warehouseId, payload.scope)
       inventoryOpen.value = true
     } catch (err) {
       inventoryError.value = err instanceof Error ? err.message : 'Inventaire impossible'
     }
-  }, `inv-${warehouseId}`)
+  }, `inv-${payload.warehouseId}`)
+}
+
+function scopeLabelFor(session: InventorySession) {
+  return inventoryScopeLabel(session.scope, {
+    categories: store.db.categories,
+    locations: inventoryLocations.value,
+    products: products.value,
+  })
 }
 
 function openInventory(session: InventorySession) {
@@ -320,7 +360,13 @@ async function onSaveInventory(lines: { productId: string; counted: number }[]) 
   await run(async () => {
     inventoryError.value = ''
     try {
-      inventorySession.value = await saveInventory(inventorySession.value!.id, lines)
+      const saved = await saveInventory(inventorySession.value!.id, lines)
+      inventorySession.value = saved
+      if (!isOnline() || (saved && '_offlineQueued' in saved)) {
+        toast.message('Inventaire sauvegardé hors ligne', {
+          description: 'Les quantités seront synchronisées au retour réseau.',
+        })
+      }
     } catch (err) {
       inventoryError.value = err instanceof Error ? err.message : 'Enregistrement impossible'
     }
@@ -329,6 +375,11 @@ async function onSaveInventory(lines: { productId: string; counted: number }[]) 
 
 async function onSubmitInventory(lines: { productId: string; counted: number }[]) {
   if (!inventorySession.value) return
+  if (!isOnline()) {
+    inventoryError.value = 'Soumission impossible hors ligne — enregistrez d’abord, sync plus tard.'
+    await onSaveInventory(lines)
+    return
+  }
   await run(async () => {
     inventoryError.value = ''
     try {
@@ -343,6 +394,11 @@ async function onSubmitInventory(lines: { productId: string; counted: number }[]
 
 async function onCompleteInventory(lines: { productId: string; counted: number }[]) {
   if (!inventorySession.value) return
+  if (!isOnline()) {
+    inventoryError.value = 'Clôture impossible hors ligne — enregistrez d’abord, sync plus tard.'
+    await onSaveInventory(lines)
+    return
+  }
   await run(async () => {
     inventoryError.value = ''
     try {
@@ -403,7 +459,7 @@ const closeOpenInventory = computed(() =>
 const closeTodayMoves = computed(() =>
   movements.value.filter(
     (item) =>
-      item.date.slice(0, 10) === DEMO_TODAY &&
+      item.date.slice(0, 10) === opsToday() &&
       (!closeWarehouse.value ||
         item.fromWarehouseId === closeWarehouse.value ||
         item.toWarehouseId === closeWarehouse.value),
@@ -650,12 +706,16 @@ const articleOrders = computed(() =>
             variant="outline"
             :disabled="!can('stock.inventory')"
             :loading="isBusy(`inv-${item.id}`)"
-            @click="onStartInventory(item.id)"
+            @click="openStartInventory(item.id)"
           >
             Inventorier {{ item.name }}
           </Button>
         </div>
-        <EmptyState v-if="!inventories.length" title="Aucun inventaire" description="Démarrez un comptage sur un entrepôt." />
+        <EmptyState
+          v-if="!inventories.length"
+          title="Aucun inventaire"
+          description="Démarrez un inventaire complet ou un cycle count ciblé."
+        />
         <article
           v-for="session in inventories"
           :key="session.id"
@@ -664,6 +724,9 @@ const articleOrders = computed(() =>
         >
           <div>
             <p class="text-sm font-semibold">{{ warehouseName(session.warehouseId) }}</p>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              {{ session.mode === 'partial' ? 'Cycle count' : 'Complet' }} · {{ scopeLabelFor(session) }}
+            </p>
             <p class="mt-0.5 text-xs text-muted-foreground">
               {{ session.counted }} / {{ session.expected }} · {{ session.lines?.length ?? 0 }} articles
             </p>
@@ -744,6 +807,7 @@ const articleOrders = computed(() =>
       :open="noteFormOpen"
       :warehouses="warehouses"
       :products="products"
+      :customers="customers"
       @close="noteFormOpen = false"
       @submit="saveShippingNote"
     />
@@ -766,11 +830,20 @@ const articleOrders = computed(() =>
       @close="moveOpen = false"
       @submit="onMove"
     />
+    <InventoryStartSheet
+      :open="inventoryStartOpen"
+      :warehouse="inventoryStartWarehouse"
+      :categories="store.db.categories"
+      :locations="inventoryLocations"
+      @close="inventoryStartOpen = false; inventoryStartWarehouse = null"
+      @start="onStartInventory"
+    />
     <InventorySessionSheet
       :open="inventoryOpen"
       :session="inventorySession"
       :products="products"
       :warehouse-name="inventorySession ? warehouseName(inventorySession.warehouseId) : ''"
+      :scope-label="inventorySession ? scopeLabelFor(inventorySession) : ''"
       :error="inventoryError"
       :can-count="can('stock.inventory')"
       :can-approve="canApproveInventory"

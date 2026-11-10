@@ -5,12 +5,12 @@ import { usePermissions } from '@/composables/usePermissions'
 import { cn } from '@/lib/utils'
 
 const route = useRoute()
-const { can } = usePermissions()
+const { can, hasModule } = usePermissions()
 
 const items = [
   { to: '/today', label: 'Aujourd’hui', icon: Sun },
   { to: '/tasks', label: 'Tâches', icon: CheckSquare },
-  { to: '/stock', label: 'Magasin', icon: Package, hide: () => !can('stock.view') },
+  { to: '/stock', label: 'Magasin', icon: Package, hide: () => !can('stock.view') || !hasModule('stock') },
   { to: '/alerts', label: 'Alertes', icon: Bell },
 ]
 </script>

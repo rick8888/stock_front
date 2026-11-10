@@ -4,7 +4,7 @@ import type { MockDatabase } from '@/types'
 import { createSeed } from '@/mocks'
 import { emitDataChanged } from '@/utils/events'
 
-const STORAGE_KEY = 'bravo-stock-ops-db-v23'
+const STORAGE_KEY = 'bravo-stock-ops-db-v25'
 
 function load(): MockDatabase {
   try {
@@ -16,6 +16,10 @@ function load(): MockDatabase {
       ...seed,
       ...parsed,
       shippingNotes: Array.isArray(parsed.shippingNotes) ? parsed.shippingNotes : seed.shippingNotes,
+      warehouseLocations: Array.isArray(parsed.warehouseLocations)
+        ? parsed.warehouseLocations
+        : seed.warehouseLocations,
+      stockPlacements: Array.isArray(parsed.stockPlacements) ? parsed.stockPlacements : seed.stockPlacements,
     }
   } catch {
     return createSeed()

@@ -18,6 +18,10 @@ import { routes } from './routes'
 import { vehicles } from './vehicles'
 import { drivers } from './drivers'
 import { shippingNotes } from './shippingNotes'
+import { customers } from './customers'
+import { stockLots } from './stockLots'
+import { warehouseLocations } from './warehouseLocations'
+import { stockPlacements } from './stockPlacements'
 import { tasks } from './tasks'
 import { alerts } from './alerts'
 import { planning } from './planning'
@@ -47,8 +51,12 @@ export function createSeed(): MockDatabase {
     vehicles,
     drivers,
     shippingNotes,
+    customers,
+    stockLots,
     tasks,
     alerts,
+    warehouseLocations,
+    stockPlacements,
     planning,
     invoices,
     payments,

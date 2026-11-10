@@ -76,9 +76,10 @@ const trMessage = computed(() => {
         :remaining="overview.remaining"
         :vehicle="overview.vehicle"
         :markers="overview.markers"
+        :progress="overview.progress"
       />
       <div class="flex items-center justify-between text-xs text-muted-foreground">
-        <p>{{ overview.doneCount }} / {{ overview.stops.length }} arrêts livrés</p>
+        <p>{{ overview.doneCount }} / {{ overview.stops.length }} arrêts · itinéraire routier</p>
         <p class="font-medium text-foreground">{{ overview.progress }} %</p>
       </div>
       <div class="h-1.5 overflow-hidden rounded-full bg-muted">

@@ -25,12 +25,19 @@ import ShipmentFormSheet from '@/components/logistics/ShipmentFormSheet.vue'
 import VehicleFormSheet from '@/components/logistics/VehicleFormSheet.vue'
 import DriverFormSheet from '@/components/logistics/DriverFormSheet.vue'
 import ShippingNoteFormSheet from '@/components/logistics/ShippingNoteFormSheet.vue'
+import LinePickSheet, { type PickLine, type PickedLine } from '@/components/stock/LinePickSheet.vue'
+import { fetchPickPath } from '@/composables/useLocations'
 import OfficialDocument from '@/components/documents/OfficialDocument.vue'
 import DocumentShareBar from '@/components/documents/DocumentShareBar.vue'
 import Sheet from '@/components/ui/Sheet.vue'
 import { formatDateTime, formatNumber, formatTime } from '@/lib/utils'
 import { useIssuer } from '@/composables/useIssuer'
+import { useCustomers } from '@/composables/useCustomers'
 import { documentWhatsAppMessage } from '@/utils/documents'
+import { downloadShippingNoteLabel } from '@/utils/labels'
+import { exportShippingNotesErpCsv } from '@/utils/erpExport'
+import { carrierTrackingUrl, listCarriers } from '@/services/carriers.stub'
+import { toast } from 'vue-sonner'
 import { DELIVERY_LABEL, DRIVER_LABEL, ROUTE_LABEL, SHIPMENT_LABEL, SHIPPING_NOTE_LABEL, VEHICLE_LABEL } from '@/config/logistics'
 import { deliveryOverview, routeOverview, shipmentOverview } from '@/services/logistics.overview'
 import type { DeliveryInput, DriverInput, RouteInput, ShipmentInput, ShippingNoteInput, VehicleInput } from '@/repositories/interfaces'
@@ -49,12 +56,17 @@ const { routes, createRoute, updateRoute } = useRoutes()
 const { vehicles, createVehicle, updateVehicle } = useVehicles()
 const { drivers, createDriver, updateDriver } = useDrivers()
 const { shipments, createShipment, updateShipment } = useShipments()
-const { shippingNotes, createShippingNote, updateShippingNote, loadShippingNote } = useShippingNotes()
+const { shippingNotes, createShippingNote, updateShippingNote, assignCarrier, markLabelPrinted, loadShippingNote } =
+  useShippingNotes()
+const { customers } = useCustomers()
 const noteLoadError = ref('')
-
-const canPrepare = computed(() => can('delivery.prepare'))
+const loadPickOpen = ref(false)
+const loadPickLines = ref<PickLine[]>([])
+const carrierDraftId = ref('car-fleet')
+const carriers = computed(() => listCarriers())
 const canCreate = computed(() => can('delivery.create'))
 const canManage = computed(() => can('delivery.create') || can('delivery.update'))
+const canPrepare = computed(() => can('stock.issue') || can('delivery.create') || can('delivery.update'))
 
 function defaultTab() {
   if (typeof route.query.tab === 'string') return route.query.tab
@@ -344,31 +356,59 @@ function openEditNote() {
   noteFormOpen.value = true
 }
 
-async function loadSelectedNote() {
+async function openLoadPick() {
   if (!selectedNote.value || !currentUser.value) return
-  await run(async () => {
-    noteLoadError.value = ''
-    try {
-      await loadShippingNote(selectedNote.value!.id, currentUser.value!.id)
-      noteDetailOpen.value = false
-      selectedNoteId.value = null
-    } catch (err) {
-      noteLoadError.value = err instanceof Error ? err.message : 'Chargement impossible'
+  noteLoadError.value = ''
+  const note = selectedNote.value
+  try {
+    const steps = await fetchPickPath(
+      note.warehouseId,
+      note.lines.map((line) => ({
+        productId: line.productId,
+        quantity: line.quantity,
+        productName: line.productName,
+        sku: line.sku,
+      })),
+    )
+    loadPickLines.value = steps.map((step, index) => {
+      const product = products.value.find((item) => item.id === step.productId)
+      const noteLine = note.lines.find((line) => line.productId === step.productId)
+      return {
+        key: `${step.productId}:${step.locationId ?? 'x'}:${index}`,
+        productId: step.productId,
+        productName: step.productName,
+        sku: step.sku ?? product?.sku,
+        barcode: product?.barcode,
+        quantity: step.quantity,
+        unit: noteLine?.unit ?? product?.unit,
+        trackLots: product?.trackLots,
+        locationId: step.locationId,
+        locationCode: step.locationCode,
+        aisle: step.aisle,
+        rack: step.rack,
+        bin: step.bin,
+        unlocated: step.unlocated,
+      }
+    })
+    if (!loadPickLines.value.length) {
+      loadPickLines.value = note.lines.map((line) => {
+        const product = products.value.find((item) => item.id === line.productId)
+        return {
+          productId: line.productId,
+          productName: line.productName,
+          sku: line.sku ?? product?.sku,
+          barcode: product?.barcode,
+          quantity: line.quantity,
+          unit: line.unit,
+          trackLots: product?.trackLots,
+          unlocated: true,
+        }
+      })
     }
-  })
-}
-
-async function saveShippingNote(payload: { id?: string; input: ShippingNoteInput }) {
-  await run(async () => {
-    const input = { ...payload.input, createdByUserId: currentUser.value?.id }
-    if (payload.id) await updateShippingNote(payload.id, input)
-    else {
-      const created = await createShippingNote(input)
-      selectedNoteId.value = created.id
-    }
-    noteFormOpen.value = false
-    editingNote.value = null
-  })
+    loadPickOpen.value = true
+  } catch (err) {
+    noteLoadError.value = err instanceof Error ? err.message : 'Chemin de picking indisponible'
+  }
 }
 
 function openNewVehicle() {
@@ -381,16 +421,88 @@ function openNewDriver() {
   driverFormOpen.value = true
 }
 
+function openEditDriverRow(driver: Driver) {
+  editingDriver.value = driver
+  driverFormOpen.value = true
+}
+
 function openEditVehicle(vehicle: Vehicle) {
   editingVehicle.value = vehicle
   vehicleFormOpen.value = true
 }
 
-function openEditDriver(driver: Driver) {
-  editingDriver.value = driver
-  driverFormOpen.value = true
+async function printNoteLabel() {
+  const note = selectedNote.value
+  if (!note) return
+  downloadShippingNoteLabel({
+    note,
+    warehouseName: warehouseName(note.warehouseId),
+    issuerName: issuer.value.name,
+  })
+  await run(async () => {
+    await markLabelPrinted(note.id)
+  })
 }
 
+async function saveShippingNote(payload: { id?: string; input: ShippingNoteInput }) {
+  await run(async () => {
+    if (payload.id) await updateShippingNote(payload.id, payload.input)
+    else {
+      const created = await createShippingNote(payload.input)
+      selectedNoteId.value = created.id
+      noteDetailOpen.value = true
+    }
+    noteFormOpen.value = false
+    editingNote.value = null
+  })
+}
+
+async function confirmLoadPick(_lines: PickedLine[]) {
+  if (!selectedNote.value || !currentUser.value) return
+  await run(async () => {
+    noteLoadError.value = ''
+    try {
+      await loadShippingNote(selectedNote.value!.id, currentUser.value!.id)
+      loadPickOpen.value = false
+      noteDetailOpen.value = false
+      selectedNoteId.value = null
+    } catch (err) {
+      noteLoadError.value = err instanceof Error ? err.message : 'Chargement impossible'
+    }
+  })
+}
+
+async function bookCarrierForNote() {
+  const note = selectedNote.value
+  if (!note || !carrierDraftId.value) return
+  await run(async () => {
+    await assignCarrier(note.id, { carrierId: carrierDraftId.value, book: true })
+    toast.success('Transporteur réservé (stub)', {
+      description: 'Numéro de suivi généré — prêt pour étiquette / export ERP.',
+    })
+  })
+}
+
+function openCarrierTracking() {
+  const note = selectedNote.value
+  if (!note?.trackingNumber) return
+  const carrier = carriers.value.find((item) => item.id === note.carrierId) ?? listCarriers(false).find((item) => item.id === note.carrierId)
+  const url = carrierTrackingUrl(carrier, note.trackingNumber)
+  if (url) window.open(url, '_blank', 'noopener')
+  else toast.message('Pas d’URL de suivi pour ce transporteur')
+}
+
+function exportNotesErp() {
+  exportShippingNotesErpCsv(shippingNotes.value, warehouseName)
+  toast.success('Export ERP généré', { description: 'CSV compatible Excel / import Odoo stub.' })
+}
+
+watch(
+  () => selectedNote.value?.id,
+  () => {
+    carrierDraftId.value = selectedNote.value?.carrierId ?? 'car-fleet'
+  },
+)
 function assignedDriver(vehicleId: string) {
   return drivers.value.find((item) => item.vehicleId === vehicleId)
 }
@@ -589,6 +701,11 @@ function stopCount(routeId: string) {
           {{ SHIPPING_NOTE_LABEL[item.status] }}
         </Badge>
       </button>
+      <div class="flex justify-end">
+        <Button size="sm" variant="outline" :disabled="!shippingNotes.length" @click="exportNotesErp">
+          Export ERP (CSV)
+        </Button>
+      </div>
     </div>
 
     <div v-else-if="tab === 'deliveries'" class="space-y-4">
@@ -710,7 +827,7 @@ function stopCount(routeId: string) {
           v-for="driver in drivers"
           :key="driver.id"
           class="surface flex w-full flex-col items-start border-l-4 border-l-primary/40 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-          @click="canManage && openEditDriver(driver)"
+          @click="canManage && openEditDriverRow(driver)"
         >
           <p class="font-medium">{{ driverName(driver.id) }}</p>
           <p class="mt-0.5 text-sm text-muted-foreground">{{ driver.phone }}</p>
@@ -754,6 +871,7 @@ function stopCount(routeId: string) {
       :note="editingNote"
       :warehouses="warehouses"
       :products="products"
+      :customers="customers"
       @close="noteFormOpen = false; editingNote = null"
       @submit="saveShippingNote"
     />
@@ -791,18 +909,51 @@ function stopCount(routeId: string) {
             { label: 'Signature chauffeur', name: noteLinked.driverName },
           ]"
         />
+        <div class="rounded-lg border px-3 py-2.5 space-y-2">
+          <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transporteur</p>
+          <select v-model="carrierDraftId" class="h-10 w-full rounded-lg border bg-card px-3 text-sm">
+            <option v-for="carrier in carriers" :key="carrier.id" :value="carrier.id">{{ carrier.name }}</option>
+          </select>
+          <p v-if="selectedNote.trackingNumber" class="text-sm">
+            Suivi <span class="font-semibold tabular-nums">{{ selectedNote.trackingNumber }}</span>
+            <span v-if="selectedNote.carrierName" class="text-muted-foreground"> · {{ selectedNote.carrierName }}</span>
+          </p>
+          <p v-else class="text-xs text-muted-foreground">Aucun numéro de suivi — réservez un transporteur stub.</p>
+          <div class="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              :disabled="!(canPrepare || canCreate || canManage)"
+              @click="bookCarrierForNote"
+            >
+              Réserver / générer suivi
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              :disabled="!selectedNote.trackingNumber"
+              @click="openCarrierTracking"
+            >
+              Ouvrir suivi
+            </Button>
+          </div>
+        </div>
         <p v-if="selectedNote.loadedAt" class="text-xs text-emerald-700">Chargé — stock sorti.</p>
+        <p v-if="selectedNote.labelPrintedAt" class="text-xs text-muted-foreground">
+          Étiquette imprimée · {{ formatDateTime(selectedNote.labelPrintedAt) }}
+        </p>
         <p v-if="noteLoadError" class="text-sm text-destructive">{{ noteLoadError }}</p>
       </div>
       <template v-if="selectedNote" #footer>
         <div class="flex flex-col gap-2">
           <DocumentShareBar :filename="selectedNote.code" :message="noteMessage" :contacts="noteContacts" />
+          <Button class="w-full" variant="outline" @click="printNoteLabel">Étiquette colis (PDF)</Button>
           <Button
             v-if="can('stock.issue') && !selectedNote.loadedAt && selectedNote.status !== 'delivered'"
             class="w-full"
-            @click="loadSelectedNote"
+            @click="openLoadPick"
           >
-            Charger (sortie de stock)
+            Picking + charger
           </Button>
           <Button v-if="canPrepare && selectedNote.status === 'ready'" class="w-full" variant="outline" @click="openEditNote">
             Modifier
@@ -810,37 +961,14 @@ function stopCount(routeId: string) {
         </div>
       </template>
     </Sheet>
-    <DeliveryFormSheet
-      :open="deliveryFormOpen"
-      :delivery="editingDelivery"
-      :routes="routes"
-      :shipping-notes="shippingNotes"
-      :initial-route-id="initialRouteId"
-      @close="deliveryFormOpen = false; editingDelivery = null"
-      @submit="saveDelivery"
-    />
-    <RouteFormSheet
-      :open="routeFormOpen"
-      :route="editingRoute"
-      :deliveries="deliveries"
-      :warehouses="allWarehouses"
-      :vehicles="vehicles"
-      :drivers="driverOptions"
-      :shipping-notes="shippingNotes"
-      @close="routeFormOpen = false; editingRoute = null"
-      @submit="saveRoute"
-    />
-    <ShipmentFormSheet
-      :open="shipmentFormOpen"
-      :shipment="editingShipment"
-      :warehouses="allWarehouses"
-      :vehicles="vehicles"
-      :drivers="driverOptions"
-      :routes="routes"
-      :deliveries="deliveries"
-      :shipping-notes="shippingNotes"
-      @close="shipmentFormOpen = false; editingShipment = null"
-      @submit="saveShipment"
+    <LinePickSheet
+      :open="loadPickOpen"
+      title="Picking chargement"
+      mode="load"
+      confirm-label="Confirmer le chargement"
+      :lines="loadPickLines"
+      @close="loadPickOpen = false"
+      @confirm="confirmLoadPick"
     />
     <VehicleFormSheet
       :open="vehicleFormOpen"

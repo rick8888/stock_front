@@ -5,6 +5,7 @@ import { useAuth, useCurrentUser } from '@/composables/useAuth'
 import Avatar from '@/components/ui/Avatar.vue'
 import Button from '@/components/ui/Button.vue'
 import ThemeToggle from '@/components/common/ThemeToggle.vue'
+import OfflineBanner from '@/components/common/OfflineBanner.vue'
 
 const { logout, loading } = useAuth()
 const { currentUser } = useCurrentUser()
@@ -36,6 +37,7 @@ function navClass(to: string, view?: string) {
         </div>
       </div>
     </header>
+    <OfflineBanner />
     <main class="flex-1 px-4 py-4 pb-8">
       <RouterView />
     </main>

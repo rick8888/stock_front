@@ -1,6 +1,18 @@
 import type { Driver, Route, Shipment, ShippingNote, Vehicle } from '@/types'
-import type { DriverInput, LogisticsRepository, RouteInput, ShipmentInput, ShippingNoteInput, VehicleInput } from '@/repositories/interfaces'
-import { uid, DEMO_TODAY } from '@/utils/helpers'
+import type {
+  DriverInput,
+  LogisticsRepository,
+  RouteInput,
+  ShipmentInput,
+  ShippingNoteCarrierInput,
+  ShippingNoteInput,
+  VehicleInput,
+} from '@/repositories/interfaces'
+import { bookTrackingNumber, getCarrier } from '@/services/carriers.stub'
+import { uid, opsToday } from '@/utils/helpers'
+import { consumeNoteReservation, releaseNoteStock, reserveNoteStock } from '@/utils/stockReserve'
+import { consumeLotsFefo } from '@/utils/stockLots'
+import { consumePlacementPath } from '@/utils/placements'
 import { db, mutate, withLatency } from './db'
 import { ALERT_ROLES } from '@/config/alerts'
 import {
@@ -46,7 +58,7 @@ function notifyLogisticsOfNote(note: ShippingNote) {
   const warehouse = db().warehouses.find((item) => item.id === note.warehouseId)
   const warehouseName = warehouse?.name ?? 'entrepôt'
   const now = new Date().toISOString()
-  const dueAt = `${DEMO_TODAY}T17:00:00.000Z`
+  const dueAt = `${opsToday()}T17:00:00.000Z`
   db().alerts.unshift({
     id: uid('al'),
     title: `${note.code} prêt à expédier`,
@@ -148,14 +160,56 @@ export class MockLogisticsRepository implements LogisticsRepository {
       if (note.status !== 'ready') throw new Error('Ce bon est déjà affecté')
       const merged: ShippingNoteInput = {
         warehouseId: input.warehouseId ?? note.warehouseId,
+        customerId: input.customerId ?? note.customerId,
+        addressId: input.addressId ?? note.addressId,
         client: input.client ?? note.client,
         address: input.address ?? note.address,
         city: input.city ?? note.city,
         notes: input.notes ?? note.notes,
+        carrierId: input.carrierId ?? note.carrierId,
+        trackingNumber: input.trackingNumber ?? note.trackingNumber,
         createdByUserId: note.createdByUserId,
         lines: input.lines ?? note.lines.map((line) => ({ productId: line.productId, quantity: line.quantity })),
       }
       Object.assign(note, assembleShippingNote(merged, ctx(), note), { id: note.id })
+      return note
+    })
+  }
+
+  assignCarrier(id: string, input: ShippingNoteCarrierInput) {
+    return mutate(() => {
+      const note = db().shippingNotes.find((item) => item.id === id)
+      if (!note) throw new Error('Bon de livraison introuvable')
+      const carrier = getCarrier(input.carrierId)
+      if (!carrier || carrier.active === false) throw new Error('Transporteur introuvable')
+      note.carrierId = carrier.id
+      note.carrierName = carrier.name
+      if (input.trackingNumber?.trim()) {
+        note.trackingNumber = input.trackingNumber.trim()
+      } else if (input.book !== false && !note.trackingNumber) {
+        note.trackingNumber = bookTrackingNumber(carrier, note.code)
+        note.bookedAt = new Date().toISOString()
+      } else if (input.book) {
+        note.trackingNumber = bookTrackingNumber(carrier, note.code)
+        note.bookedAt = new Date().toISOString()
+      }
+      db().auditLogs.unshift({
+        id: uid('aud'),
+        userId: '',
+        action: 'Transporteur affecté',
+        entity: 'shipping_note',
+        entityId: note.id,
+        createdAt: new Date().toISOString(),
+      })
+      return note
+    })
+  }
+
+  markLabelPrinted(id: string) {
+    return mutate(() => {
+      const note = db().shippingNotes.find((item) => item.id === id)
+      if (!note) throw new Error('Bon de livraison introuvable')
+      note.labelPrintedAt = new Date().toISOString()
       return note
     })
   }
@@ -274,6 +328,7 @@ export class MockLogisticsRepository implements LogisticsRepository {
       const shipment: Shipment = { id: uid('shp'), ...assembleShipment(input, ctx()) }
       db().shipments.push(shipment)
       bindShipmentNotes(shipment, ctx())
+      syncShipmentReservations(shipment)
       return shipment
     })
   }
@@ -282,6 +337,7 @@ export class MockLogisticsRepository implements LogisticsRepository {
     return mutate(() => {
       const shipment = db().shipments.find((item) => item.id === id)
       if (!shipment) throw new Error('Expédition introuvable')
+      const previousStatus = shipment.status
       const merged: ShipmentInput = {
         originWarehouseId: input.originWarehouseId ?? shipment.originWarehouseId,
         destinationWarehouseId: input.destinationWarehouseId ?? shipment.destinationWarehouseId,
@@ -297,7 +353,11 @@ export class MockLogisticsRepository implements LogisticsRepository {
         status: input.status ?? shipment.status,
       }
       Object.assign(shipment, assembleShipment(merged, ctx(), shipment), { id: shipment.id })
+      if (shipment.status === 'done' && previousStatus !== 'done' && shipment.destinationWarehouseId) {
+        receiveTransferShipment(shipment)
+      }
       bindShipmentNotes(shipment, ctx())
+      syncShipmentReservations(shipment)
       return shipment
     })
   }
@@ -308,28 +368,33 @@ export class MockLogisticsRepository implements LogisticsRepository {
       if (!note) throw new Error('Bon introuvable')
       if (note.loadedAt) throw new Error('Ce bon est déjà chargé.')
       const now = new Date().toISOString()
+      const shipment = note.shipmentId ? db().shipments.find((item) => item.id === note.shipmentId) : undefined
+      const destinationWarehouseId = shipment?.destinationWarehouseId
+      consumeNoteReservation(note)
       for (const line of note.lines) {
-        const stock = db().stock.find(
-          (row) => row.productId === line.productId && row.warehouseId === note.warehouseId,
-        )
-        if (!stock || stock.quantity < line.quantity) {
-          throw new Error(`Stock insuffisant pour ${line.productName}`)
+        const product = db().products.find((item) => item.id === line.productId)
+        if (product?.trackLots) {
+          consumeLotsFefo(line.productId, note.warehouseId, line.quantity)
         }
-        stock.quantity -= line.quantity
+        consumePlacementPath(line.productId, note.warehouseId, line.quantity)
         db().stockMovements.unshift({
           id: uid('mov'),
           productId: line.productId,
-          type: 'issue',
+          type: destinationWarehouseId ? 'transfer' : 'issue',
           quantity: line.quantity,
           fromWarehouseId: note.warehouseId,
+          toWarehouseId: destinationWarehouseId,
           userId,
           date: now,
-          note: `Chargement ${note.code}`,
+          note: destinationWarehouseId ? `Chargement transfert ${note.code}` : `Chargement ${note.code}`,
           reference: note.code,
         })
       }
       note.loadedAt = now
       note.loadedByUserId = userId
+      if (destinationWarehouseId) {
+        note.inTransitToWarehouseId = destinationWarehouseId
+      }
       db().auditLogs.unshift({
         id: uid('aud'),
         userId,
@@ -341,4 +406,60 @@ export class MockLogisticsRepository implements LogisticsRepository {
       return note
     })
   }
+}
+
+function syncShipmentReservations(shipment: Shipment) {
+  const bound = new Set(shipment.shippingNoteIds ?? [])
+  for (const note of db().shippingNotes) {
+    if (!bound.has(note.id) && note.stockReserved && !note.deliveryId && !note.loadedAt) {
+      releaseNoteStock(note)
+    }
+  }
+  if (shipment.status === 'done') return
+  for (const noteId of bound) {
+    const note = db().shippingNotes.find((item) => item.id === noteId)
+    if (note) reserveNoteStock(note)
+  }
+}
+
+function receiveTransferShipment(shipment: Shipment) {
+  if (!shipment.destinationWarehouseId || (shipment as { stockReceivedAt?: string }).stockReceivedAt) return
+  const now = new Date().toISOString()
+  for (const noteId of shipment.shippingNoteIds ?? []) {
+    const note = db().shippingNotes.find((item) => item.id === noteId)
+    if (!note?.loadedAt || (note as { stockReceivedAt?: string }).stockReceivedAt) continue
+    for (const line of note.lines) {
+      let stock = db().stock.find(
+        (row) => row.productId === line.productId && row.warehouseId === shipment.destinationWarehouseId,
+      )
+      if (!stock) {
+        stock = {
+          id: uid('stk'),
+          productId: line.productId,
+          warehouseId: shipment.destinationWarehouseId!,
+          quantity: 0,
+          reserved: 0,
+          enabled: true,
+        }
+        db().stock.push(stock)
+      }
+      stock.quantity += line.quantity
+      db().stockMovements.unshift({
+        id: uid('mov'),
+        productId: line.productId,
+        type: 'receive',
+        quantity: line.quantity,
+        fromWarehouseId: note.warehouseId,
+        toWarehouseId: shipment.destinationWarehouseId,
+        userId: note.loadedByUserId ?? '',
+        date: now,
+        note: `Réception transfert ${note.code}`,
+        reference: note.code,
+      })
+    }
+    ;(note as { stockReceivedAt?: string }).stockReceivedAt = now
+    note.status = 'delivered'
+  }
+  ;(shipment as { stockReceivedAt?: string }).stockReceivedAt = now
+  shipment.progress = 100
 }

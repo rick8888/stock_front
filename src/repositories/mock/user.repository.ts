@@ -1,6 +1,7 @@
 import type { Driver, RoleKey, User } from '@/types'
 import type { AuthRepository, RoleRepository, UserInput, UserRepository } from '@/repositories/interfaces'
 import { uid } from '@/utils/helpers'
+import { assertCanAddUser } from '@/utils/planLimits'
 import { db, mutate, withLatency } from './db'
 
 const ROLE_TITLES: Record<RoleKey, string> = {
@@ -125,6 +126,9 @@ export class MockUserRepository implements UserRepository {
         productIds: input.productIds ?? [],
         regionIds: input.regionIds ?? [],
         companyId: input.companyId ?? creator?.companyId,
+      }
+      if (user.companyId && user.role !== 'SUPER_ADMIN' && user.role !== 'TENANT_OWNER') {
+        assertCanAddUser(user.companyId)
       }
       db().users.push(user)
       if (user.companyId) {

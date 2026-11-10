@@ -73,9 +73,10 @@ const blMessage = computed(() => {
         :remaining="overview.remaining"
         :vehicle="overview.vehicle"
         :markers="overview.markers"
+        :progress="overview.progress"
       />
       <div class="flex items-center justify-between text-xs text-muted-foreground">
-        <p>Point bleu = position actuelle du véhicule</p>
+        <p>Le véhicule suit l’itinéraire routier réel</p>
         <p class="font-medium text-foreground">{{ overview.progress }} %</p>
       </div>
       <div class="h-1.5 overflow-hidden rounded-full bg-muted">

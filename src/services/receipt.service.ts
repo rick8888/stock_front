@@ -9,7 +9,7 @@ export const receiptService = {
     id: string,
     received: number,
     userId: string,
-    lines?: { productId: string; received: number }[],
+    lines?: { productId: string; received: number; lotCode?: string; expiryDate?: string; locationId?: string }[],
   ) => receiptRepository.validate(id, received, userId, lines),
 
   async createFromOrder(order: PurchaseOrder) {

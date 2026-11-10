@@ -1,14 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Sparkles } from 'lucide-vue-next'
 import Sheet from '@/components/ui/Sheet.vue'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
 import StockStatusBadge from '@/components/stock/StockStatusBadge.vue'
-import { formatDateTime, formatNumber } from '@/lib/utils'
+import { formatDate, formatDateTime, formatNumber } from '@/lib/utils'
 import { usePermissions } from '@/composables/usePermissions'
+import { locationRepository, placementRepository, stockLotRepository } from '@/repositories'
 import { MOVEMENT_LABEL } from '@/config/stock'
-import type { ProcurementRequest, PurchaseOrder, StockMovement, StockOverviewRow, StockRecommendation } from '@/types'
+import type {
+  ProcurementRequest,
+  PurchaseOrder,
+  StockLot,
+  StockMovement,
+  StockOverviewRow,
+  StockPlacement,
+  StockRecommendation,
+  WarehouseLocation,
+} from '@/types'
 
 const props = defineProps<{
   open: boolean
@@ -33,6 +43,36 @@ const rec = computed(() => props.recommendation ?? null)
 const history = computed(() => props.movements ?? [])
 const das = computed(() => props.requests ?? [])
 const pos = computed(() => props.orders ?? [])
+const lots = ref<StockLot[]>([])
+const placements = ref<StockPlacement[]>([])
+const locationMap = ref<Map<string, WarehouseLocation>>(new Map())
+
+const placementRows = computed(() =>
+  placements.value.map((row) => ({
+    ...row,
+    locationCode: locationMap.value.get(row.locationId)?.code ?? row.locationId,
+  })),
+)
+
+watch(
+  () => [props.open, props.row?.productId, props.row?.warehouseId] as const,
+  async ([open, productId, warehouseId]) => {
+    if (!open || !productId || !warehouseId) {
+      lots.value = []
+      placements.value = []
+      locationMap.value = new Map()
+      return
+    }
+    const [lotRows, placementRowsData, locs] = await Promise.all([
+      stockLotRepository.list(warehouseId, productId),
+      placementRepository.list(warehouseId, productId),
+      locationRepository.list(warehouseId),
+    ])
+    lots.value = lotRows
+    placements.value = placementRowsData.filter((row) => row.quantity > 0)
+    locationMap.value = new Map(locs.map((row) => [row.id, row]))
+  },
+)
 
 const movementLabel = MOVEMENT_LABEL
 
@@ -111,6 +151,34 @@ const kpis = computed(() => {
           <p class="mt-1 text-lg font-semibold tracking-tight">{{ formatNumber(kpi.value) }}</p>
         </div>
       </div>
+
+      <section v-if="placementRows.length">
+        <h3 class="text-sm font-semibold">Emplacements</h3>
+        <div class="mt-2 space-y-2">
+          <article v-for="row in placementRows" :key="row.id" class="rounded-lg border px-3 py-2">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-sm font-medium">{{ row.locationCode }}</p>
+              <p class="text-sm tabular-nums">{{ formatNumber(row.quantity) }}</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="lots.length">
+        <h3 class="text-sm font-semibold">Lots / DLC (FEFO)</h3>
+        <div class="mt-2 space-y-2">
+          <article v-for="lot in lots" :key="lot.id" class="rounded-lg border px-3 py-2">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-sm font-medium">{{ lot.lotCode }}</p>
+              <p class="text-sm tabular-nums">{{ formatNumber(lot.quantity) }}</p>
+            </div>
+            <p class="text-xs text-muted-foreground">
+              {{ lot.expiryDate ? `DLC ${formatDate(lot.expiryDate)}` : 'Sans DLC' }}
+              <span v-if="lot.locationId"> · {{ locationMap.get(lot.locationId)?.code ?? lot.locationId }}</span>
+            </p>
+          </article>
+        </div>
+      </section>
 
       <section>
         <h3 class="text-sm font-semibold">Analyse</h3>

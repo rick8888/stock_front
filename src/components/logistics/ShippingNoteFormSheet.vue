@@ -6,8 +6,9 @@ import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Textarea from '@/components/ui/Textarea.vue'
-import type { Product, ShippingNote, Warehouse } from '@/types'
+import type { Carrier, Customer, Product, ShippingNote, Warehouse } from '@/types'
 import type { ShippingNoteInput } from '@/repositories/interfaces'
+import { listCarriers } from '@/services/carriers.stub'
 
 interface FormLine {
   key: string
@@ -20,6 +21,7 @@ const props = defineProps<{
   note?: ShippingNote | null
   warehouses: Warehouse[]
   products: Product[]
+  customers?: Customer[]
 }>()
 
 const emit = defineEmits<{
@@ -28,15 +30,22 @@ const emit = defineEmits<{
 }>()
 
 const warehouseId = ref('')
+const customerId = ref('')
+const addressId = ref('')
 const client = ref('')
 const address = ref('')
 const city = ref('')
 const notes = ref('')
+const carrierId = ref('')
 const lines = ref<FormLine[]>([blankLine()])
 
 const editing = computed(() => Boolean(props.note))
+const carriers = computed<Carrier[]>(() => listCarriers())
 const catalog = computed(() => props.products.filter((item) => !item.archived))
 const selectedWarehouse = computed(() => props.warehouses.find((item) => item.id === warehouseId.value))
+const customerList = computed(() => (props.customers ?? []).filter((item) => item.active !== false))
+const selectedCustomer = computed(() => customerList.value.find((item) => item.id === customerId.value))
+const customerAddresses = computed(() => selectedCustomer.value?.addresses ?? [])
 const parsedLines = computed(() =>
   lines.value
     .map((line) => ({ productId: line.productId, quantity: Number(line.quantity) }))
@@ -55,13 +64,41 @@ function blankLine(): FormLine {
   return { key: `ln-${Math.random().toString(36).slice(2, 8)}`, productId: '', quantity: '4' }
 }
 
+function applyCustomer(id: string) {
+  customerId.value = id
+  const customer = customerList.value.find((item) => item.id === id)
+  if (!customer) return
+  client.value = customer.name
+  const preferred =
+    customer.addresses.find((row) => row.id === addressId.value) ??
+    customer.addresses.find((row) => row.isDefault) ??
+    customer.addresses[0]
+  if (preferred) {
+    addressId.value = preferred.id
+    address.value = preferred.address
+    city.value = preferred.city
+  }
+}
+
+function applyAddress(id: string) {
+  addressId.value = id
+  const row = customerAddresses.value.find((item) => item.id === id)
+  if (!row) return
+  address.value = row.address
+  city.value = row.city
+}
+
 function reset() {
   const current = props.note
   warehouseId.value = current?.warehouseId ?? props.warehouses[0]?.id ?? ''
+  customerId.value = current?.customerId ?? ''
+  addressId.value = current?.addressId ?? ''
   client.value = current?.client ?? ''
   address.value = current?.address ?? ''
   city.value = current?.city ?? props.warehouses.find((item) => item.id === warehouseId.value)?.city ?? ''
   notes.value = current?.notes ?? ''
+  carrierId.value = current?.carrierId ?? 'car-fleet'
+  if (!current && customerList.value[0]) applyCustomer(customerList.value[0].id)
   const starters = current?.lines.length
     ? current.lines.map((line) => ({
         key: `ln-${line.productId}`,
@@ -109,10 +146,13 @@ function submit() {
     id: props.note?.id,
     input: {
       warehouseId: warehouseId.value,
+      customerId: customerId.value || undefined,
+      addressId: addressId.value || undefined,
       client: client.value.trim(),
       address: address.value.trim(),
       city: city.value.trim(),
       notes: notes.value.trim() || undefined,
+      carrierId: carrierId.value || undefined,
       lines: parsedLines.value,
     },
   })
@@ -131,9 +171,32 @@ function submit() {
           Le logisticien de cet entrepôt sera notifié dès l’enregistrement.
         </p>
       </div>
+      <div v-if="customerList.length">
+        <Label>Client enregistré</Label>
+        <select
+          class="mt-1.5 h-10 w-full rounded-lg border bg-card px-3 text-sm"
+          :value="customerId"
+          @change="applyCustomer(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">Saisie libre</option>
+          <option v-for="customer in customerList" :key="customer.id" :value="customer.id">{{ customer.name }}</option>
+        </select>
+      </div>
       <div>
         <Label>Client</Label>
         <Input v-model="client" class="mt-1.5" placeholder="Pharmacie des Habous" />
+      </div>
+      <div v-if="customerAddresses.length > 1">
+        <Label>Adresse enregistrée</Label>
+        <select
+          class="mt-1.5 h-10 w-full rounded-lg border bg-card px-3 text-sm"
+          :value="addressId"
+          @change="applyAddress(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="row in customerAddresses" :key="row.id" :value="row.id">
+            {{ row.label }} — {{ row.city }}
+          </option>
+        </select>
       </div>
       <div class="grid gap-3 sm:grid-cols-2">
         <div>
@@ -144,6 +207,14 @@ function submit() {
           <Label>Ville</Label>
           <Input v-model="city" class="mt-1.5" placeholder="Casablanca" />
         </div>
+      </div>
+      <div>
+        <Label>Transporteur</Label>
+        <select v-model="carrierId" class="mt-1.5 h-10 w-full rounded-lg border bg-card px-3 text-sm">
+          <option v-for="carrier in carriers" :key="carrier.id" :value="carrier.id">
+            {{ carrier.name }}
+          </option>
+        </select>
       </div>
       <div>
         <Label>Note interne</Label>

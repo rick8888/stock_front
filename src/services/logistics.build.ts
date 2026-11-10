@@ -10,8 +10,14 @@ import type {
   Task,
   Warehouse,
 } from '@/types'
-import { chainPath, haversineKm, locationFor, pointAlong } from '@/utils/geo'
+import { getCarrier } from '@/services/carriers.stub'
+import { haversineKm, locationFor, pointAlong } from '@/utils/geo'
 import { uid } from '@/utils/helpers'
+
+/** Waypoints bruts (pas de courbe) — le routage routier est calculé dans TrackingMap. */
+function waypointPath(points: GeoPoint[]): GeoPoint[] {
+  return points.filter(Boolean)
+}
 
 export interface LogisticsBuildCtx {
   routes: Route[]
@@ -87,9 +93,17 @@ export function assembleShippingNote(
   if (client.length < 2 || address.length < 2 || !city) throw new Error('Client et adresse sont requis')
   const lines = noteLines(ctx.products, input.lines)
   if (!lines.length) throw new Error('Ajoutez au moins un article')
+  const carrierId = input.carrierId !== undefined ? input.carrierId || undefined : existing?.carrierId
+  const carrier = getCarrier(carrierId)
+  const trackingNumber =
+    input.trackingNumber !== undefined
+      ? input.trackingNumber.trim() || undefined
+      : existing?.trackingNumber
   return {
     code: existing?.code ?? nextShippingNoteCode(ctx.shippingNotes),
     warehouseId: warehouse.id,
+    customerId: input.customerId || existing?.customerId,
+    addressId: input.addressId || existing?.addressId,
     client,
     address,
     city,
@@ -98,6 +112,11 @@ export function assembleShippingNote(
     deliveryId: existing?.deliveryId,
     shipmentId: existing?.shipmentId,
     notes: input.notes?.trim() || existing?.notes,
+    carrierId,
+    carrierName: carrier?.name,
+    trackingNumber,
+    labelPrintedAt: existing?.labelPrintedAt,
+    bookedAt: existing?.bookedAt,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     createdByUserId: existing?.createdByUserId ?? input.createdByUserId,
   }
@@ -190,7 +209,7 @@ export function assembleDelivery(
     : locationFor(city, address, client, origin)
   const siblings = ctx.deliveries.filter((item) => item.routeId === input.routeId && item.id !== existing?.id)
   const sequence = input.sequence ?? existing?.sequence ?? Math.max(0, ...siblings.map((item) => item.sequence)) + 1
-  const path = chainPath([origin, location])
+  const path = waypointPath([origin, location])
   const progress = existing && status === existing.status ? existing.progress : progressFor(status)
   const currentPosition = pointAlong(path, progress / 100)
   return {
@@ -224,7 +243,7 @@ export function assembleRoute(input: RouteInput, ctx: LogisticsBuildCtx, existin
   const stops = ctx.deliveries
     .filter((item) => item.routeId === existing?.id)
     .sort((a, b) => a.sequence - b.sequence)
-  const path = stops.length ? chainPath([origin, ...stops.map((item) => item.location)]) : [origin]
+  const path = stops.length ? waypointPath([origin, ...stops.map((item) => item.location)]) : [origin]
   const delivered = stops.filter((item) => item.status === 'delivered').length
   const active = stops.find((item) => item.status === 'in_transit' || item.status === 'at_risk')
   let status = input.status ?? existing?.status ?? 'planned'
@@ -280,7 +299,7 @@ export function assembleShipment(
     'Destination'
   const path = route?.path?.length
     ? route.path
-    : chainPath([origin, ...(stops.map((item) => item.location) ?? []), destinationLocation].filter(Boolean))
+    : waypointPath([origin, ...(stops.map((item) => item.location) ?? []), destinationLocation].filter(Boolean))
   const fromNotes = aggregateNoteLines(notes)
   const fromCatalog = noteLines(ctx.products, input.lines ?? [])
   const aggregated = new Map<string, DeliveryNoteLine>()
@@ -337,7 +356,7 @@ export function relinkRouteDeliveries(route: Route, ctx: LogisticsBuildCtx) {
         item.vehicleId = route.vehicleId
       }
       item.warehouseId = route.warehouseId
-      item.path = chainPath([origin, item.location])
+      item.path = waypointPath([origin, item.location])
       item.currentPosition = pointAlong(item.path, item.progress / 100)
     })
 }

@@ -39,6 +39,8 @@ const {
   updateCompany,
   changeSubscription,
   payInvoice,
+  startCheckout,
+  openPortal,
   createAdmin,
   updateAdmin,
 } = useAccount()
@@ -172,6 +174,28 @@ async function onPay(id: string) {
       actionError.value = err instanceof Error ? err.message : 'Paiement impossible'
     }
   }, id)
+}
+
+async function onCheckout() {
+  await run(async () => {
+    actionError.value = ''
+    try {
+      await startCheckout({ planId: draftPlanId.value, interval: draftInterval.value })
+    } catch (err) {
+      actionError.value = err instanceof Error ? err.message : 'Checkout impossible'
+    }
+  })
+}
+
+async function onPortal() {
+  await run(async () => {
+    actionError.value = ''
+    try {
+      await openPortal()
+    } catch (err) {
+      actionError.value = err instanceof Error ? err.message : 'Portail impossible'
+    }
+  })
 }
 
 function openNewAdmin() {
@@ -373,9 +397,24 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
             </Badge>
           </div>
           <p v-if="plan" class="mt-3 text-xs text-muted-foreground">
-            {{ cap(plan.maxUsers) }} utilisateurs · {{ cap(plan.maxWarehouses) }} entrepôts ·
             {{ plan.modules.map(moduleLabel).join(' · ') }}
           </p>
+          <div v-if="plan" class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border px-3 py-2.5">
+              <p class="text-[11px] text-muted-foreground">Utilisateurs</p>
+              <p class="mt-1 text-lg font-semibold tabular-nums">
+                {{ company?.usersCount ?? 0 }}
+                <span class="text-sm font-normal text-muted-foreground">/ {{ cap(plan.maxUsers) }}</span>
+              </p>
+            </div>
+            <div class="rounded-xl border px-3 py-2.5">
+              <p class="text-[11px] text-muted-foreground">Entrepôts</p>
+              <p class="mt-1 text-lg font-semibold tabular-nums">
+                {{ company?.warehousesCount ?? 0 }}
+                <span class="text-sm font-normal text-muted-foreground">/ {{ cap(plan.maxWarehouses) }}</span>
+              </p>
+            </div>
+          </div>
         </article>
 
         <div v-if="can('account.billing')" class="surface space-y-4 px-4 py-4">
@@ -397,8 +436,12 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
               </select>
             </label>
           </div>
-          <p class="text-xs text-muted-foreground">Un changement de plan ou d’intervalle génère une nouvelle facture.</p>
-          <Button size="sm" :loading="busy" :disabled="locked || !dirtySubscription" @click="saveSubscription">Enregistrer</Button>
+          <p class="text-xs text-muted-foreground">Un changement de plan ou d’intervalle génère une nouvelle facture. Avec Stripe, utilisez Checkout ou le portail.</p>
+          <div class="flex flex-wrap gap-2">
+            <Button size="sm" :loading="busy" :disabled="locked || !dirtySubscription" @click="saveSubscription">Enregistrer</Button>
+            <Button size="sm" variant="outline" :loading="busy" :disabled="locked" @click="onCheckout">S’abonner (Stripe)</Button>
+            <Button size="sm" variant="outline" :loading="busy" :disabled="locked" @click="onPortal">Gérer la facturation</Button>
+          </div>
         </div>
       </div>
 
@@ -427,6 +470,9 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
           <div class="flex items-center gap-2">
             <span class="text-sm font-semibold">{{ formatMoney(invoice.amount) }}</span>
             <Badge :variant="invoiceVariant(invoice.status)">{{ invoiceLabel[invoice.status] }}</Badge>
+            <p v-if="invoice.status === 'paid' && invoice.paymentRef" class="text-[11px] text-muted-foreground">
+              {{ invoice.paymentProvider ?? 'stub' }} · {{ invoice.paymentRef }}
+            </p>
             <Button
               v-if="can('account.billing') && (invoice.status === 'open' || invoice.status === 'overdue')"
               size="sm"

@@ -9,7 +9,7 @@ import { useRoleTheme } from '@/composables/useRoleTheme'
 import Avatar from '@/components/ui/Avatar.vue'
 import { cn } from '@/lib/utils'
 
-const { can } = usePermissions()
+const { can, hasModule } = usePermissions()
 const { currentUser, displayName } = useCurrentUser()
 const route = useRoute()
 const counts = useNavCounts()
@@ -28,7 +28,9 @@ const sections = computed(() =>
   navSectionsFor(currentUser.value?.role)
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => !item.permission || can(item.permission)),
+      items: section.items.filter(
+        (item) => (!item.permission || can(item.permission)) && (!item.module || hasModule(item.module)),
+      ),
     }))
     .filter((section) => section.items.length),
 )

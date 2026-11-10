@@ -29,6 +29,13 @@ import type {
   PlanningRepository,
   RoleRepository,
   ConsultationRepository,
+  CustomerRepository,
+  CustomerInput,
+  StockLotRepository,
+  AnalyticsRepository,
+  WarehouseLocationRepository,
+  WarehouseLocationInput,
+  StockPlacementRepository,
 } from '@/repositories/interfaces'
 import type {
   Delivery,
@@ -52,6 +59,11 @@ import type {
   StockMovement,
   InventorySession,
   ShippingNote,
+  Customer,
+  StockLot,
+  WarehouseLocation,
+  StockPlacement,
+  PickPathStep,
   Company,
   CompanyStatus,
   SubscriptionPlan,
@@ -145,10 +157,14 @@ export class ApiStockRepository implements StockRepository {
       body: JSON.stringify({ productId, warehouseId, enabled }),
     })
   }
-  startInventory(warehouseId: string, userId: string): Promise<InventorySession> {
+  startInventory(
+    warehouseId: string,
+    userId: string,
+    scope?: import('@/types').InventoryScope,
+  ): Promise<InventorySession> {
     return httpClient.request('/stock/inventories', {
       method: 'POST',
-      body: JSON.stringify({ warehouseId, userId }),
+      body: JSON.stringify({ warehouseId, userId, scope }),
     })
   }
   saveInventory(id: string, lines: { productId: string; counted: number }[]): Promise<InventorySession> {
@@ -238,7 +254,12 @@ export class ApiReceiptRepository implements ReceiptRepository {
   create(input: Omit<Receipt, 'id'>): Promise<Receipt> {
     return httpClient.request('/receipts', { method: 'POST', body: JSON.stringify(input) })
   }
-  validate(id: string, received: number, userId: string, lines?: { productId: string; received: number }[]): Promise<Receipt> {
+  validate(
+    id: string,
+    received: number,
+    userId: string,
+    lines?: { productId: string; received: number; lotCode?: string; expiryDate?: string; locationId?: string }[],
+  ): Promise<Receipt> {
     return httpClient.request(`/receipts/${id}/validate`, {
       method: 'POST',
       body: JSON.stringify({ received, userId, lines }),
@@ -256,10 +277,16 @@ export class ApiDeliveryRepository implements DeliveryRepository {
   update(id: string, input: Partial<DeliveryInput>): Promise<Delivery> {
     return httpClient.request(`/deliveries/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
   }
-  updateStatus(id: string, status: Delivery['status'], note?: string, signedBy?: string): Promise<Delivery> {
+  updateStatus(
+    id: string,
+    status: Delivery['status'],
+    note?: string,
+    signedBy?: string,
+    proof?: import('@/repositories/interfaces').DeliveryProofInput,
+  ): Promise<Delivery> {
     return httpClient.request(`/deliveries/${id}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status, note, signedBy }),
+      body: JSON.stringify({ status, note, signedBy, ...proof }),
     })
   }
 }
@@ -285,6 +312,12 @@ export class ApiLogisticsRepository implements LogisticsRepository {
   }
   updateShippingNote(id: string, input: Partial<ShippingNoteInput>): Promise<ShippingNote> {
     return httpClient.request(`/shipping-notes/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+  }
+  assignCarrier(id: string, input: import('@/repositories/interfaces').ShippingNoteCarrierInput): Promise<ShippingNote> {
+    return httpClient.request(`/shipping-notes/${id}/carrier`, { method: 'PATCH', body: JSON.stringify(input) })
+  }
+  markLabelPrinted(id: string): Promise<ShippingNote> {
+    return httpClient.request(`/shipping-notes/${id}/label-printed`, { method: 'POST' })
   }
   updateVehicle(id: string, input: Partial<VehicleInput>): Promise<Vehicle> {
     return httpClient.request(`/vehicles/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
@@ -448,8 +481,23 @@ export class ApiPlatformRepository implements PlatformRepository {
       body: JSON.stringify(input),
     })
   }
-  payInvoice(id: string): Promise<void> {
-    return httpClient.request(`/platform/invoices/${id}/pay`, { method: 'POST' })
+  payInvoice(id: string) {
+    return httpClient.request(`/platform/invoices/${id}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+  }
+  checkout(input: { companyId?: string; planId?: string; interval?: BillingInterval; invoiceId?: string } = {}) {
+    return httpClient.request('/platform/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  }
+  portal(input: { companyId?: string } = {}) {
+    return httpClient.request('/platform/billing/portal', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
   }
 }
 
@@ -487,5 +535,76 @@ export class ApiPlanningRepository implements PlanningRepository {
 export class ApiRoleRepository implements RoleRepository {
   list(): Promise<Role[]> {
     return httpClient.request('/roles')
+  }
+}
+
+export class ApiCustomerRepository implements CustomerRepository {
+  list(): Promise<Customer[]> {
+    return httpClient.request('/customers')
+  }
+  getById(id: string): Promise<Customer | null> {
+    return httpClient.request(`/customers/${id}`)
+  }
+  create(input: CustomerInput): Promise<Customer> {
+    return httpClient.request('/customers', { method: 'POST', body: JSON.stringify(input) })
+  }
+  update(id: string, input: Partial<CustomerInput>): Promise<Customer> {
+    return httpClient.request(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+  }
+}
+
+export class ApiStockLotRepository implements StockLotRepository {
+  list(warehouseId?: string, productId?: string): Promise<StockLot[]> {
+    const query = new URLSearchParams()
+    if (warehouseId) query.set('warehouseId', warehouseId)
+    if (productId) query.set('productId', productId)
+    const suffix = query.toString() ? `?${query}` : ''
+    return httpClient.request(`/stock/lots${suffix}`)
+  }
+}
+
+export class ApiAnalyticsRepository implements AnalyticsRepository {
+  snapshot(): ReturnType<AnalyticsRepository['snapshot']> {
+    return httpClient.request('/analytics/snapshot')
+  }
+}
+
+export class ApiWarehouseLocationRepository implements WarehouseLocationRepository {
+  list(warehouseId?: string): Promise<WarehouseLocation[]> {
+    const suffix = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : ''
+    return httpClient.request(`/locations${suffix}`)
+  }
+  getById(id: string): Promise<WarehouseLocation | null> {
+    return httpClient.request(`/locations/${id}`)
+  }
+  create(input: WarehouseLocationInput): Promise<WarehouseLocation> {
+    return httpClient.request('/locations', { method: 'POST', body: JSON.stringify(input) })
+  }
+  update(id: string, input: Partial<WarehouseLocationInput>): Promise<WarehouseLocation> {
+    return httpClient.request(`/locations/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+  }
+}
+
+export class ApiStockPlacementRepository implements StockPlacementRepository {
+  list(warehouseId?: string, productId?: string): Promise<StockPlacement[]> {
+    const query = new URLSearchParams()
+    if (warehouseId) query.set('warehouseId', warehouseId)
+    if (productId) query.set('productId', productId)
+    const suffix = query.toString() ? `?${query}` : ''
+    return httpClient.request(`/stock/placements${suffix}`)
+  }
+  async pickPath(
+    warehouseId: string,
+    lines: { productId: string; quantity: number; productName?: string; sku?: string }[],
+  ): Promise<PickPathStep[]> {
+    const payload = await httpClient.request<{ items: PickPathStep[] }>('/stock/pick-path', {
+      method: 'POST',
+      body: JSON.stringify({ warehouseId, lines }),
+    })
+    return payload.items ?? []
+  }
+  suggestPutaway(warehouseId: string, productId: string): Promise<WarehouseLocation | null> {
+    const query = new URLSearchParams({ warehouseId, productId })
+    return httpClient.request(`/stock/suggest-putaway?${query}`)
   }
 }
