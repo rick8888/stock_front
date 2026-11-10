@@ -26,8 +26,8 @@ function afterDelivery(routeId: string) {
       shipment.path = route.path
       shipment.progress = route.progress
       shipment.currentPosition = route.currentPosition
-      if (route.status === 'done') shipment.status = 'done'
-      else if (route.status === 'in_progress' && shipment.status === 'preparing') shipment.status = 'in_transit'
+      // Ne force pas « done » (réception stock inbound côté API) — seulement le transit.
+      if (route.status === 'in_progress' && shipment.status === 'preparing') shipment.status = 'in_transit'
     })
 }
 
@@ -93,13 +93,18 @@ export class MockDeliveryRepository implements DeliveryRepository {
       delivery.status = status
       if (note) delivery.notes = note
       if (status === 'delivered') {
+        const hasSignature = Boolean(proof?.signatureDataUrl)
+        const hasCoords = proof?.lat != null && proof?.lng != null
+        if (!hasSignature && !hasCoords) {
+          throw new Error('Preuve de livraison requise : signature ou coordonnées GPS.')
+        }
         const now = proof?.signedAt || new Date().toISOString()
         delivery.progress = 100
         delivery.signedAt = now
         delivery.signedBy = signedBy || proof?.signedBy || delivery.signedBy || 'Destinataire'
-        if (proof?.signatureDataUrl) delivery.signatureDataUrl = proof.signatureDataUrl
-        if (proof?.lat != null && proof?.lng != null) {
-          delivery.podLocation = { lat: proof.lat, lng: proof.lng, at: now }
+        if (hasSignature) delivery.signatureDataUrl = proof!.signatureDataUrl
+        if (hasCoords) {
+          delivery.podLocation = { lat: proof!.lat!, lng: proof!.lng!, at: now }
         }
         const shippingNote = db().shippingNotes.find(
           (item) => item.id === delivery.shippingNoteId || item.deliveryId === delivery.id,

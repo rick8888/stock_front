@@ -87,6 +87,70 @@ export function pointAlong(path: GeoPoint[], t: number): GeoPoint {
   return { ...path[path.length - 1] }
 }
 
+/** Projette un GPS sur le tracé le plus proche (aligné sur bravo-api Geo::projectOntoPath). */
+export function projectOntoPath(path: GeoPoint[], lat: number, lng: number) {
+  if (!path.length) {
+    return { lat, lng, progress: 0, distanceAlongKm: 0, remainingKm: 0, totalKm: 0, segmentIndex: 0 }
+  }
+  if (path.length === 1) {
+    return {
+      lat: path[0].lat,
+      lng: path[0].lng,
+      progress: 0,
+      distanceAlongKm: 0,
+      remainingKm: 0,
+      totalKm: 0,
+      segmentIndex: 0,
+    }
+  }
+  const point = { lat, lng }
+  let best: GeoPoint | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+  let prefix = 0
+  let atPrefix = 0
+  let segmentIndex = 0
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i]
+    const b = path[i + 1]
+    const leg = haversineKm(a, b)
+    const projected = closestOnSegment(a, b, point)
+    const dist = haversineKm(point, projected)
+    if (dist < bestDistance) {
+      bestDistance = dist
+      best = projected
+      atPrefix = prefix + leg * projected.t
+      segmentIndex = i
+    }
+    prefix += leg
+  }
+  const total = Math.max(prefix, 0.0001)
+  const along = Math.min(total, Math.max(0, atPrefix))
+  return {
+    lat: best?.lat ?? lat,
+    lng: best?.lng ?? lng,
+    progress: Math.round((along / total) * 10000) / 100,
+    distanceAlongKm: Math.round(along * 1000) / 1000,
+    remainingKm: Math.round(Math.max(0, total - along) * 1000) / 1000,
+    totalKm: Math.round(total * 1000) / 1000,
+    segmentIndex,
+  }
+}
+
+function closestOnSegment(a: GeoPoint, b: GeoPoint, p: GeoPoint) {
+  const ax = a.lng
+  const ay = a.lat
+  const bx = b.lng
+  const by = b.lat
+  const px = p.lng
+  const py = p.lat
+  const dx = bx - ax
+  const dy = by - ay
+  const len2 = dx * dx + dy * dy
+  if (len2 <= 0) return { lat: ay, lng: ax, t: 0 }
+  const t = Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / len2))
+  return { lat: ay + t * dy, lng: ax + t * dx, t }
+}
+
 export function splitPath(path: GeoPoint[], t: number): { done: GeoPoint[]; rest: GeoPoint[] } {
   if (path.length < 2) return { done: [...path], rest: [] }
   const clamped = Math.min(1, Math.max(0, t))

@@ -1,11 +1,14 @@
 import type { LiveRouteTracking, RouteTrackingSnapshot, TrackingEvent, TrackingPingInput } from '@/types'
 import type { TrackingRepository } from '@/repositories/interfaces'
-import { pointAlong } from '@/utils/geo'
+import { projectOntoPath } from '@/utils/geo'
 import { uid } from '@/utils/helpers'
 import { db, mutate, withLatency } from './db'
 
+const DEFAULT_SPEED_KMH = 30
+
 /**
- * Hors ligne : projette le ping sur le path mock de la tournée, sans journal durable.
+ * Hors ligne uniquement : projette le ping GPS sur le path mock, sans journal durable.
+ * La progression vient de la projection (pas d’incrément artificiel +5 %).
  */
 export class MockTrackingRepository implements TrackingRepository {
   live() {
@@ -60,16 +63,25 @@ export class MockTrackingRepository implements TrackingRepository {
       const route = db().routes.find((item) => item.id === input.routeId)
       if (!route) throw new Error('Tournée introuvable')
       const path = route.path?.length ? route.path : []
-      const progress = path.length
-        ? Math.min(100, Math.max(route.progress, Math.round(((route.progress || 10) + 5))))
-        : route.progress
-      const position = path.length
-        ? { ...pointAlong(path, progress / 100), at: new Date().toISOString(), label: 'Position véhicule' }
-        : { lat: input.lat, lng: input.lng, at: new Date().toISOString(), label: 'Position véhicule' }
+      const projection = path.length >= 2
+        ? projectOntoPath(path, input.lat, input.lng)
+        : { progress: route.progress, remainingKm: 0, lat: input.lat, lng: input.lng }
+      const progress = Math.min(100, Math.max(0, Math.round(projection.progress)))
+      const now = input.recordedAt ?? new Date().toISOString()
+      const speed = input.speedKmh != null && input.speedKmh >= 5 ? input.speedKmh : DEFAULT_SPEED_KMH
+      const etaMs = projection.remainingKm > 0
+        ? Date.now() + (projection.remainingKm / speed) * 3600_000
+        : Date.now()
+      const position = {
+        lat: input.lat,
+        lng: input.lng,
+        at: now,
+        label: 'Position véhicule',
+      }
       route.progress = progress
       route.currentPosition = position
       route.status = progress >= 100 ? 'done' : route.status === 'planned' ? 'in_progress' : route.status
-      route.eta = new Date(Date.now() + 40 * 60_000).toISOString()
+      route.eta = new Date(etaMs).toISOString()
 
       const active = db()
         .deliveries.filter((item) => item.routeId === route.id && !['delivered', 'failed'].includes(item.status))
@@ -80,6 +92,19 @@ export class MockTrackingRepository implements TrackingRepository {
         active.currentPosition = position
         active.eta = route.eta
       }
+
+      // Alignement shipment ↔ tournée (même règle que l’API).
+      db().shipments
+        .filter((item) => item.routeId === route.id)
+        .forEach((shipment) => {
+          shipment.progress = route.progress
+          shipment.currentPosition = route.currentPosition
+          if (route.path?.length) shipment.path = route.path
+          if (route.eta) shipment.eta = route.eta
+          if (route.status === 'in_progress' && shipment.status === 'preparing') {
+            shipment.status = 'in_transit'
+          }
+        })
 
       const event: TrackingEvent = {
         id: uid('trk'),
@@ -96,10 +121,10 @@ export class MockTrackingRepository implements TrackingRepository {
         progress,
         eventType: input.eventType ?? 'ping',
         source: input.source ?? 'driver_app',
-        recordedAt: input.recordedAt ?? new Date().toISOString(),
+        recordedAt: now,
       }
 
-      return { event, route, etaAt: route.eta }
+      return { event, route, etaAt: route.eta, projection }
     })
   }
 }
