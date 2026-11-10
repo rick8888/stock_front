@@ -25,14 +25,9 @@ import Switch from '@/components/ui/Switch.vue'
 import ProductFormSheet from '@/components/stock/ProductFormSheet.vue'
 import UserFormSheet from '@/components/admin/UserFormSheet.vue'
 import WarehouseFormSheet from '@/components/admin/WarehouseFormSheet.vue'
-import CustomerFormSheet from '@/components/admin/CustomerFormSheet.vue'
-import LocationFormSheet from '@/components/admin/LocationFormSheet.vue'
-import { useCustomers } from '@/composables/useCustomers'
-import { useLocations } from '@/composables/useLocations'
-import { useEntitlements } from '@/composables/useEntitlements'
 import { formatDateTime, formatMoney, warehouseCode } from '@/lib/utils'
-import type { Customer, Product, RoleKey, User, Warehouse, WarehouseLocation } from '@/types'
-import type { CustomerInput, ProductInput, UserInput, WarehouseLocationInput } from '@/repositories/interfaces'
+import type { Product, RoleKey, User, Warehouse } from '@/types'
+import type { ProductInput, UserInput } from '@/repositories/interfaces'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,12 +42,6 @@ const { overview, inventories, pendingReceipts, warehouseName, toggleAssignment 
 const { orderOverviews } = useProcurement()
 const { suppliers } = useSuppliers()
 const store = useDataStore()
-const { locations, createLocation, updateLocation } = useLocations()
-const { canAddUser, canAddWarehouse, refresh: refreshEntitlements } = useEntitlements()
-const store = useDataStore()
-const locationWarehouseFilter = ref('all')
-const locationOpen = ref(false)
-const editingLocation = ref<WarehouseLocation | null>(null)
 
 const tab = computed(() => (typeof route.query.tab === 'string' ? route.query.tab : 'today'))
 const open = ref(false)
@@ -68,8 +57,6 @@ const editingProduct = ref<Product | null>(null)
 const userOpen = ref(false)
 const editingUser = ref<User | null>(null)
 const userError = ref('')
-const customerOpen = ref(false)
-const editingCustomer = ref<Customer | null>(null)
 
 const titles: Record<string, { title: string; description: string }> = {
   today: { title: 'Aujourd’hui', description: 'Ce qui bloque les sites, sans quitter le référentiel.' },
@@ -77,8 +64,6 @@ const titles: Record<string, { title: string; description: string }> = {
   users: { title: 'Utilisateurs', description: 'Comptes, rôles et périmètres d’action.' },
   products: { title: 'Produits', description: 'Le catalogue utilisé par les entrepôts.' },
   suppliers: { title: 'Fournisseurs', description: 'Partenaires, délais et fiabilité.' },
-  customers: { title: 'Clients', description: 'Destinataires et adresses de livraison.' },
-  locations: { title: 'Emplacements', description: 'Allées, racks et bacs pour putaway et picking.' },
   categories: { title: 'Catégories', description: 'La classification du catalogue.' },
   settings: { title: 'Paramètres', description: 'Données de démonstration de cette session.' },
   roles: { title: 'Rôles', description: 'Ce que chaque profil a le droit de voir et de faire.' },
@@ -246,7 +231,6 @@ async function onScopeUser(id: string) {
 async function addWarehouse(input: Omit<Warehouse, 'id'>) {
   await run(async () => {
     await createWarehouse(input)
-    await refreshEntitlements()
     open.value = false
   })
 }
@@ -291,10 +275,9 @@ async function saveUser(payload: { id?: string; input: UserInput }) {
     try {
       const input = { ...payload.input, createdByUserId: currentUser.value?.id }
       if (payload.id) await updateUser(payload.id, input)
-      else {
-        await createUser(input)
-        await refreshEntitlements()
-      }
+      else await createUser(input)
+      userOpen.value = false
+      editingUser.value = null
     } catch (err) {
       userError.value = err instanceof Error ? err.message : 'Enregistrement impossible'
     }
@@ -322,53 +305,6 @@ async function saveProduct(payload: { id?: string; input: ProductInput }) {
 
 watch(selectedWarehouse, (id) => {
   const warehouse = allWarehouses.value.find((item) => item.id === id)
-function openNewCustomer() {
-  editingCustomer.value = null
-  customerOpen.value = true
-}
-
-function openEditCustomer(customer: Customer) {
-  editingCustomer.value = customer
-  customerOpen.value = true
-}
-
-async function saveCustomer(payload: { id?: string; input: CustomerInput }) {
-  await run(async () => {
-    if (payload.id) await updateCustomer(payload.id, payload.input)
-    else await createCustomer(payload.input)
-    customerOpen.value = false
-    editingCustomer.value = null
-  })
-}
-
-const visibleLocations = computed(() => {
-  if (locationWarehouseFilter.value === 'all') return locations.value
-  return locations.value.filter((item) => item.warehouseId === locationWarehouseFilter.value)
-})
-
-function locationWarehouseName(id: string) {
-  return allWarehouses.value.find((item) => item.id === id)?.name ?? id
-}
-
-function openNewLocation() {
-  editingLocation.value = null
-  locationOpen.value = true
-}
-
-function openEditLocation(location: WarehouseLocation) {
-  editingLocation.value = location
-  locationOpen.value = true
-}
-
-async function saveLocation(payload: { id?: string; input: WarehouseLocationInput }) {
-  await run(async () => {
-    if (payload.id) await updateLocation(payload.id, payload.input)
-    else await createLocation(payload.input)
-    locationOpen.value = false
-    editingLocation.value = null
-  })
-}
-
   if (warehouse) managerId.value = warehouse.managerUserId
 })
 
@@ -386,7 +322,7 @@ const opsDelayed = computed(() => orderOverviews.value.filter((item) => item.lat
       <template #actions>
         <Button v-if="can('warehouse.create') && tab === 'overview'" size="sm" @click="open = true">
           <Plus class="size-3.5" />
-        <Button v-if="can('warehouse.create') && tab === 'overview'" size="sm" :disabled="!canAddWarehouse" :title="canAddWarehouse ? undefined : 'Limite du plan atteinte'" @click="open = true">
+          Nouvel entrepôt
         </Button>
         <Button v-if="can('product.create') && tab === 'products'" size="sm" @click="openNewProduct">
           <Plus class="size-3.5" />
@@ -394,26 +330,10 @@ const opsDelayed = computed(() => orderOverviews.value.filter((item) => item.lat
         </Button>
         <Button v-if="can('user.create') && tab === 'users'" size="sm" @click="openNewUser">
           <Plus class="size-3.5" />
-        <Button v-if="can('user.create') && tab === 'users'" size="sm" :disabled="!canAddUser" :title="canAddUser ? undefined : 'Limite du plan atteinte'" @click="openNewUser">
+          Nouvel utilisateur
         </Button>
       </template>
     </PageHeader>
-        <Button
-          v-if="(can('delivery.create') || can('delivery.prepare') || can('product.create')) && tab === 'customers'"
-          size="sm"
-          @click="openNewCustomer"
-        >
-          <Plus class="size-3.5" />
-          Nouveau client
-        </Button>
-        <Button
-          v-if="(can('warehouse.update') || can('warehouse.create')) && tab === 'locations'"
-          size="sm"
-          @click="openNewLocation"
-        >
-          <Plus class="size-3.5" />
-          Nouvel emplacement
-        </Button>
     <ErrorState v-if="!can('user.view')" message="Accès administration restreint." />
 
     <div v-else-if="tab === 'today'" class="space-y-4">
@@ -747,76 +667,6 @@ const opsDelayed = computed(() => orderOverviews.value.filter((item) => item.lat
 
     <div v-else-if="tab === 'suppliers'" class="space-y-5">
       <div class="grid gap-3 sm:grid-cols-3">
-    <div v-else-if="tab === 'locations'" class="space-y-5">
-      <div class="flex flex-wrap gap-2">
-        <button
-          class="chip border-border/70 bg-card"
-          :class="locationWarehouseFilter === 'all' ? 'ring-1 ring-primary/30' : ''"
-          @click="locationWarehouseFilter = 'all'"
-        >
-          Tous · {{ locations.length }}
-        </button>
-        <button
-          v-for="warehouse in allWarehouses"
-          :key="warehouse.id"
-          class="chip border-border/70 bg-card"
-          :class="locationWarehouseFilter === warehouse.id ? 'ring-1 ring-primary/30' : ''"
-          @click="locationWarehouseFilter = warehouse.id"
-        >
-          {{ warehouse.name }}
-        </button>
-      </div>
-      <EmptyState
-        v-if="!visibleLocations.length"
-        title="Aucun emplacement"
-        description="Créez des allées / racks / bacs pour guider putaway et picking."
-      />
-      <div v-else class="space-y-2">
-        <article v-for="location in visibleLocations" :key="location.id" class="surface px-4 py-3.5">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p class="text-sm font-semibold">{{ location.code }}</p>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                {{ locationWarehouseName(location.warehouseId) }} · {{ location.type }}
-                · {{ location.aisle }}/{{ location.rack }}/{{ location.bin }}
-              </p>
-            </div>
-            <div class="flex items-center gap-2">
-              <Badge :variant="location.active ? 'success' : 'outline'">{{ location.active ? 'Actif' : 'Inactif' }}</Badge>
-              <Button size="icon" variant="outline" @click="openEditLocation(location)">
-                <Pencil class="size-4" />
-              </Button>
-            </div>
-          </div>
-        </article>
-      </div>
-    </div>
-
-    <div v-else-if="tab === 'customers'" class="space-y-5">
-      <article class="surface border-l-4 border-l-primary p-4">
-        <p class="text-[13px] font-medium text-muted-foreground">Clients actifs</p>
-        <p class="mt-2 text-2xl font-semibold tracking-tight">{{ customers.length }}</p>
-      </article>
-      <EmptyState v-if="!customers.length" title="Aucun client" description="Ajoutez un destinataire pour préremplir les BL." />
-      <div v-else class="space-y-2">
-        <article v-for="customer in customers" :key="customer.id" class="surface px-4 py-3.5">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p class="text-sm font-semibold">{{ customer.name }}</p>
-              <p class="mt-0.5 text-xs text-muted-foreground">
-                {{ customer.addresses[0]?.city ?? '—' }}
-                <span v-if="customer.phone"> · {{ customer.phone }}</span>
-                · {{ customer.addresses.length }} adresse(s)
-              </p>
-            </div>
-            <Button size="icon" variant="outline" @click="openEditCustomer(customer)">
-              <Pencil class="size-4" />
-            </Button>
-          </div>
-        </article>
-      </div>
-    </div>
-
         <button
           class="surface border-l-4 border-l-primary p-4 text-left transition-colors hover:bg-primary/5"
           :class="supplierFilter === 'all' ? 'ring-1 ring-primary/20' : ''"
@@ -1014,20 +864,6 @@ const opsDelayed = computed(() => orderOverviews.value.filter((item) => item.lat
     />
     <UserFormSheet
       :open="userOpen"
-    <CustomerFormSheet
-      :open="customerOpen"
-      :customer="editingCustomer"
-      @close="customerOpen = false; editingCustomer = null"
-      @submit="saveCustomer"
-    />
-    <LocationFormSheet
-      :open="locationOpen"
-      :location="editingLocation"
-      :warehouses="allWarehouses"
-      :default-warehouse-id="locationWarehouseFilter !== 'all' ? locationWarehouseFilter : undefined"
-      @close="locationOpen = false; editingLocation = null"
-      @submit="saveLocation"
-    />
       :user="editingUser"
       :roles="formRoles"
       :warehouses="allWarehouses"
