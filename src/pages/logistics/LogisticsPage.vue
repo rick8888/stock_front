@@ -58,8 +58,16 @@ const { live: liveRoutes } = useLiveTracking(20_000)
 const { vehicles, createVehicle, updateVehicle } = useVehicles()
 const { drivers, createDriver, updateDriver } = useDrivers()
 const { shipments, createShipment, updateShipment } = useShipments()
-const { shippingNotes, createShippingNote, updateShippingNote, assignCarrier, markLabelPrinted, loadShippingNote } =
-  useShippingNotes()
+const {
+  shippingNotes,
+  createShippingNote,
+  updateShippingNote,
+  assignCarrier,
+  markLabelPrinted,
+  startPicking,
+  loadShippingNote,
+  refresh: refreshNotes,
+} = useShippingNotes()
 const { customers } = useCustomers()
 const noteLoadError = ref('')
 const loadPickOpen = ref(false)
@@ -164,7 +172,9 @@ const counts = computed(() => ({
   moving: deliveries.value.filter((item) => item.status === 'in_transit').length,
   delivered: deliveries.value.filter((item) => item.status === 'delivered').length,
   routes: trackedRoutes.value.filter((item) => item.status === 'in_progress').length,
-  readyNotes: scopedNotes.value.filter((item) => item.status === 'ready').length,
+  readyNotes: scopedNotes.value.filter((item) =>
+    item.status === 'ready' || item.status === 'picking' || item.status === 'loaded',
+  ).length,
 }))
 
 watch(liveRoutes, () => {
@@ -178,6 +188,8 @@ const scopedNotes = computed(() =>
 
 const noteChips = computed(() => [
   { id: 'ready' as const, label: 'Prêts', count: scopedNotes.value.filter((item) => item.status === 'ready').length },
+  { id: 'picking' as const, label: 'Préparation', count: scopedNotes.value.filter((item) => item.status === 'picking').length },
+  { id: 'loaded' as const, label: 'Chargés', count: scopedNotes.value.filter((item) => item.status === 'loaded').length },
   { id: 'assigned' as const, label: 'Affectés', count: scopedNotes.value.filter((item) => item.status === 'assigned').length },
   { id: 'delivered' as const, label: 'Livrés', count: scopedNotes.value.filter((item) => item.status === 'delivered').length },
   { id: 'all' as const, label: 'Tous', count: scopedNotes.value.length },
@@ -379,10 +391,25 @@ function openEditNote() {
   noteFormOpen.value = true
 }
 
+async function beginPicking() {
+  if (!selectedNote.value) return
+  await run(async () => {
+    await startPicking(selectedNote.value!.id)
+    toast.success('Préparation démarrée')
+  })
+}
+
 async function openLoadPick() {
   if (!selectedNote.value || !currentUser.value) return
   noteLoadError.value = ''
   const note = selectedNote.value
+  if (note.status === 'ready') {
+    try {
+      await startPicking(note.id)
+    } catch {
+      // On continue le picking même si le statut n'a pas bougé.
+    }
+  }
   try {
     const steps = await fetchPickPath(
       note.warehouseId,
@@ -624,6 +651,7 @@ async function saveRoute(payload: { id?: string; input: RouteInput }) {
       selectedRouteId.value = created.id
       tab.value = 'routes'
     }
+    await Promise.all([refreshDeliveries(), refreshRoutes(), refreshNotes()])
     routeFormOpen.value = false
     editingRoute.value = null
   })
@@ -716,16 +744,33 @@ function stopCount(routeId: string) {
         v-for="item in visibleNotes"
         :key="item.id"
         class="surface flex w-full items-start justify-between gap-3 border-l-4 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-        :class="item.status === 'ready' ? 'border-l-primary' : item.status === 'delivered' ? 'border-l-emerald-500' : 'border-l-blue-500'"
+        :class="
+          item.status === 'ready' || item.status === 'picking'
+            ? 'border-l-primary'
+            : item.status === 'delivered'
+              ? 'border-l-emerald-500'
+              : item.status === 'loaded'
+                ? 'border-l-amber-500'
+                : 'border-l-blue-500'
+        "
         @click="openNote(item.id)"
       >
         <div class="min-w-0">
           <p class="font-medium">{{ item.code }} · {{ item.client }}</p>
           <p class="mt-0.5 text-sm text-muted-foreground">
             {{ item.city }} · {{ warehouseName(item.warehouseId) }} · {{ item.lines.length }} article{{ item.lines.length > 1 ? 's' : '' }}
+            <span v-if="item.loadedAt"> · chargé</span>
           </p>
         </div>
-        <Badge :variant="item.status === 'ready' ? 'info' : item.status === 'delivered' ? 'success' : 'onorder'">
+        <Badge
+          :variant="
+            item.status === 'ready' || item.status === 'picking'
+              ? 'info'
+              : item.status === 'delivered'
+                ? 'success'
+                : 'onorder'
+          "
+        >
           {{ SHIPPING_NOTE_LABEL[item.status] }}
         </Badge>
       </button>
@@ -977,13 +1022,26 @@ function stopCount(routeId: string) {
           <DocumentShareBar :filename="selectedNote.code" :message="noteMessage" :contacts="noteContacts" />
           <Button class="w-full" variant="outline" @click="printNoteLabel">Étiquette colis (PDF)</Button>
           <Button
+            v-if="canPrepare && selectedNote.status === 'ready'"
+            class="w-full"
+            variant="outline"
+            @click="beginPicking"
+          >
+            Démarrer la préparation
+          </Button>
+          <Button
             v-if="can('stock.issue') && !selectedNote.loadedAt && selectedNote.status !== 'delivered'"
             class="w-full"
             @click="openLoadPick"
           >
             Picking + charger
           </Button>
-          <Button v-if="canPrepare && selectedNote.status === 'ready'" class="w-full" variant="outline" @click="openEditNote">
+          <Button
+            v-if="canPrepare && (selectedNote.status === 'ready' || selectedNote.status === 'picking')"
+            class="w-full"
+            variant="outline"
+            @click="openEditNote"
+          >
             Modifier
           </Button>
         </div>

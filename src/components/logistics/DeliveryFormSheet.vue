@@ -59,7 +59,9 @@ function reset() {
   notes.value = current?.notes ?? ''
   status.value = current?.status ?? 'prepared'
   if (!shippingNoteId.value) {
-    shippingNoteId.value = noteOptions.value.find((item) => item.status === 'ready')?.id ?? ''
+    shippingNoteId.value = noteOptions.value.find((item) =>
+      item.status === 'ready' || item.status === 'picking' || item.status === 'loaded',
+    )?.id ?? ''
   }
 }
 
@@ -73,7 +75,9 @@ watch(
 watch(routeId, () => {
   if (!props.open) return
   if (selectedNote.value && selectedRoute.value && selectedNote.value.warehouseId !== selectedRoute.value.warehouseId) {
-    shippingNoteId.value = noteOptions.value.find((item) => item.status === 'ready')?.id ?? ''
+    shippingNoteId.value = noteOptions.value.find((item) =>
+      item.status === 'ready' || item.status === 'picking' || item.status === 'loaded',
+    )?.id ?? ''
   }
 })
 

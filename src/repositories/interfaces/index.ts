@@ -361,6 +361,7 @@ export interface LogisticsRepository {
   updateShippingNote(id: string, input: Partial<ShippingNoteInput>): Promise<ShippingNote>
   assignCarrier(id: string, input: ShippingNoteCarrierInput): Promise<ShippingNote>
   markLabelPrinted(id: string): Promise<ShippingNote>
+  startPicking(id: string): Promise<ShippingNote>
   updateVehicle(id: string, input: Partial<VehicleInput>): Promise<Vehicle>
   createVehicle(input: VehicleInput): Promise<Vehicle>
   createDriver(input: DriverInput): Promise<Driver>

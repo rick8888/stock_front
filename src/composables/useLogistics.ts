@@ -152,6 +152,11 @@ export function useShippingNotes() {
     await list.refresh(true)
     return updated
   }
+  async function startPicking(id: string) {
+    const updated = await logisticsService.startPicking(id)
+    await list.refresh(true)
+    return updated
+  }
   async function loadShippingNote(id: string, userId: string) {
     const updated = await logisticsService.loadShippingNote(id, userId)
     await list.refresh(true)
@@ -165,6 +170,7 @@ export function useShippingNotes() {
     updateShippingNote,
     assignCarrier,
     markLabelPrinted,
+    startPicking,
     loadShippingNote,
     refresh: list.refresh,
   }

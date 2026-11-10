@@ -32,6 +32,6 @@ export function availableShippingNotes(
     ) {
       return false
     }
-    return note.status === 'ready'
+    return note.status === 'ready' || note.status === 'picking' || note.status === 'loaded'
   })
 }

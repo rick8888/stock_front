@@ -336,6 +336,9 @@ export class ApiLogisticsRepository implements LogisticsRepository {
   markLabelPrinted(id: string): Promise<ShippingNote> {
     return httpClient.request(`/shipping-notes/${id}/label-printed`, { method: 'POST' })
   }
+  startPicking(id: string): Promise<ShippingNote> {
+    return httpClient.request(`/shipping-notes/${id}/start-picking`, { method: 'POST' })
+  }
   updateVehicle(id: string, input: Partial<VehicleInput>): Promise<Vehicle> {
     return httpClient.request(`/vehicles/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
   }

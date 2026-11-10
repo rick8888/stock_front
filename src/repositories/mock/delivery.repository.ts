@@ -104,7 +104,24 @@ export class MockDeliveryRepository implements DeliveryRepository {
         const shippingNote = db().shippingNotes.find(
           (item) => item.id === delivery.shippingNoteId || item.deliveryId === delivery.id,
         )
-        if (shippingNote) shippingNote.status = 'delivered'
+        if (shippingNote) {
+          if (!shippingNote.loadedAt && shippingNote.stockReserved) {
+            for (const line of shippingNote.lines) {
+              const stock = db().stock.find(
+                (row) => row.productId === line.productId && row.warehouseId === shippingNote.warehouseId,
+              )
+              if (stock) {
+                stock.reserved = Math.max(0, (stock.reserved ?? 0) - line.quantity)
+                stock.quantity = Math.max(0, stock.quantity - line.quantity)
+              }
+            }
+            shippingNote.loadedAt = now
+            shippingNote.stockReserved = false
+          } else if (!shippingNote.loadedAt && shippingNote.lines.length) {
+            throw new Error(`Le bon ${shippingNote.code} doit être chargé avant la preuve de livraison.`)
+          }
+          shippingNote.status = 'delivered'
+        }
         if (delivery.location) {
           delivery.currentPosition = { ...delivery.location, at: now }
         }
@@ -146,6 +163,9 @@ export class MockDeliveryRepository implements DeliveryRepository {
           } else {
             releaseNoteStock(shippingNote)
           }
+          shippingNote.deliveryId = undefined
+          shippingNote.status = 'ready'
+          delivery.shippingNoteId = undefined
         }
       }
       afterDelivery(delivery.routeId)

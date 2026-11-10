@@ -177,7 +177,9 @@ export function bindShipmentNotes(shipment: Shipment, ctx: LogisticsBuildCtx) {
       if (!note.deliveryId) note.status = 'delivered'
       return
     }
-    if (note.status === 'ready') note.status = 'assigned'
+    if (note.status === 'ready' || note.status === 'picking' || note.status === 'loaded') {
+      note.status = 'assigned'
+    }
   })
   completeShippingNoteTasks([...ids], ctx)
 }

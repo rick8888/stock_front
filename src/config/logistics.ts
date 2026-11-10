@@ -35,6 +35,8 @@ export const DRIVER_LABEL = {
 
 export const SHIPPING_NOTE_LABEL = {
   ready: 'Disponible',
+  picking: 'En préparation',
+  loaded: 'Chargé',
   assigned: 'Affecté',
   delivered: 'Livré',
 } as const

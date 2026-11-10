@@ -157,7 +157,9 @@ export class MockLogisticsRepository implements LogisticsRepository {
     return mutate(() => {
       const note = db().shippingNotes.find((item) => item.id === id)
       if (!note) throw new Error('Bon de livraison introuvable')
-      if (note.status !== 'ready') throw new Error('Ce bon est déjà affecté')
+      if (note.status !== 'ready' && note.status !== 'picking') {
+        throw new Error('Ce bon est déjà affecté')
+      }
       const merged: ShippingNoteInput = {
         warehouseId: input.warehouseId ?? note.warehouseId,
         customerId: input.customerId ?? note.customerId,
@@ -210,6 +212,18 @@ export class MockLogisticsRepository implements LogisticsRepository {
       const note = db().shippingNotes.find((item) => item.id === id)
       if (!note) throw new Error('Bon de livraison introuvable')
       note.labelPrintedAt = new Date().toISOString()
+      return note
+    })
+  }
+
+  startPicking(id: string) {
+    return mutate(() => {
+      const note = db().shippingNotes.find((item) => item.id === id)
+      if (!note) throw new Error('Bon de livraison introuvable')
+      if (note.status !== 'ready' && note.status !== 'picking') {
+        throw new Error('Seuls les bons disponibles peuvent entrer en préparation.')
+      }
+      note.status = 'picking'
       return note
     })
   }
@@ -367,6 +381,9 @@ export class MockLogisticsRepository implements LogisticsRepository {
       const note = db().shippingNotes.find((item) => item.id === id)
       if (!note) throw new Error('Bon introuvable')
       if (note.loadedAt) throw new Error('Ce bon est déjà chargé.')
+      if (!['ready', 'picking', 'loaded', 'assigned'].includes(note.status)) {
+        throw new Error('Ce bon ne peut plus être chargé.')
+      }
       const now = new Date().toISOString()
       const shipment = note.shipmentId ? db().shipments.find((item) => item.id === note.shipmentId) : undefined
       const destinationWarehouseId = shipment?.destinationWarehouseId
@@ -392,6 +409,9 @@ export class MockLogisticsRepository implements LogisticsRepository {
       }
       note.loadedAt = now
       note.loadedByUserId = userId
+      if (['ready', 'picking', 'loaded'].includes(note.status) && !note.deliveryId && !note.shipmentId) {
+        note.status = 'loaded'
+      }
       if (destinationWarehouseId) {
         note.inTransitToWarehouseId = destinationWarehouseId
       }

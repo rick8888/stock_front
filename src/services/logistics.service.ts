@@ -20,5 +20,6 @@ export const logisticsService = {
   assignCarrier: (id: string, input: import('@/repositories/interfaces').ShippingNoteCarrierInput) =>
     logisticsRepository.assignCarrier(id, input),
   markLabelPrinted: (id: string) => logisticsRepository.markLabelPrinted(id),
+  startPicking: (id: string) => logisticsRepository.startPicking(id),
   loadShippingNote: (id: string, userId: string) => logisticsRepository.loadShippingNote(id, userId),
 }

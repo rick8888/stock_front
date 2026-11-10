@@ -558,7 +558,7 @@ export interface ShippingNote {
   address: string
   city: string
   lines: DeliveryNoteLine[]
-  status: 'ready' | 'assigned' | 'delivered'
+  status: 'ready' | 'picking' | 'loaded' | 'assigned' | 'delivered'
   deliveryId?: string
   shipmentId?: string
   notes?: string
