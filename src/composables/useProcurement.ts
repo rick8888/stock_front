@@ -77,6 +77,7 @@ export function useProcurement() {
       approved: 0,
       rejected: 0,
       ordered: 0,
+      expired: 0,
     }
     overviews.value.forEach((item) => {
       const status = item.request.status === 'cancelled' ? 'rejected' : item.request.status
@@ -85,6 +86,7 @@ export function useProcurement() {
       if (status === 'approved') tally.approved += 1
       if (status === 'rejected') tally.rejected += 1
       if (status === 'ordered' || status === 'closed') tally.ordered += 1
+      if (status === 'expired') tally.expired += 1
     })
     return tally
   })

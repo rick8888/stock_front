@@ -77,7 +77,7 @@ const tabs = [
   { id: 'suppliers', label: 'Fournisseurs' },
 ]
 
-const filter = ref<'all' | 'submitted' | 'in_review' | 'approved' | 'rejected' | 'ordered'>(defaultFilter())
+const filter = ref<'all' | 'submitted' | 'in_review' | 'approved' | 'rejected' | 'ordered' | 'expired'>(defaultFilter())
 const selected = ref<RequestOverview | null>(null)
 const groupIds = ref<string[]>([])
 const selectedReceipt = ref<ReceiptOverview | null>(null)
@@ -123,6 +123,10 @@ const chips = computed(() => [
   { id: 'approved' as const, label: 'Validées / à traiter', count: counts.value.approved },
   { id: 'rejected' as const, label: 'Rejetées', count: counts.value.rejected },
   { id: 'ordered' as const, label: 'Traitées', count: counts.value.ordered },
+  // État d'exception : l'onglet ne s'affiche que s'il a matière à montrer.
+  ...(counts.value.expired
+    ? [{ id: 'expired' as const, label: 'Périmées', count: counts.value.expired }]
+    : []),
 ])
 
 const orderChips = computed(() => {
@@ -161,6 +165,7 @@ const pageDescription = computed(() => {
 function toneBar(overview: RequestOverview) {
   const status = normalizeStatus(overview.request.status)
   if (status === 'rejected') return 'border-l-red-500'
+  if (status === 'expired') return 'border-l-muted-foreground/40'
   if (status === 'submitted' || status === 'in_review') return 'border-l-amber-500'
   if (status === 'approved' || status === 'ordered' || status === 'closed') return 'border-l-emerald-500'
   return 'border-l-border'

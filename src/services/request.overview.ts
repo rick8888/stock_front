@@ -50,6 +50,7 @@ export const STATUS_LABEL: Record<string, string> = {
   approved: 'Validée',
   rejected: 'Rejetée',
   cancelled: 'Rejetée',
+  expired: 'Périmée',
   ordered: 'Commandée',
   closed: 'Clôturée',
   sent: 'Envoyée',
@@ -163,7 +164,7 @@ export function buildRequestOverviews(input: {
 
 function nextOwnerLabel(request: ProcurementRequest, decision: RequestOverview['decision']) {
   const status = normalizeStatus(request.status)
-  if (['rejected', 'closed'].includes(status)) return ''
+  if (['rejected', 'closed', 'expired'].includes(status)) return ''
   if (status === 'ordered') return 'Magasin'
   if (request.assignedRole === 'WAREHOUSE_MANAGER') return 'Magasin'
   if (request.assignedRole === 'PROCUREMENT') return 'Achats'
@@ -181,11 +182,18 @@ function buildTimeline(
 ): TimelineStep[] {
   const status = normalizeStatus(request.status)
   const rejected = status === 'rejected'
+  const expired = status === 'expired'
+  // Rejet et péremption arrêtent tous deux le parcours : les étapes suivantes
+  // n'auront pas lieu.
+  const stopped = rejected || expired
   const toStore = request.assignedRole === 'WAREHOUSE_MANAGER' || (decision === 'issue' && !request.assignedRole)
   const pastSubmit = !['draft'].includes(status)
-  const pastReview = ['approved', 'ordered', 'closed', 'rejected'].includes(status)
+  // La décision se lit aussi à sa date : une demande validée puis périmée a bien
+  // été tranchée, même si son statut ne le dit plus.
+  const pastReview =
+    ['approved', 'ordered', 'closed', 'rejected'].includes(status) || Boolean(request.decidedAt)
   const pastSupply = ['ordered', 'closed'].includes(status)
-  const consultState: TimelineStep['state'] = rejected || toStore
+  const consultState: TimelineStep['state'] = stopped || toStore
     ? 'skipped'
     : consultation?.status === 'awarded'
       ? 'done'
@@ -209,20 +217,20 @@ function buildTimeline(
     },
     {
       id: 'review',
-      label: rejected ? 'Rejetée' : 'Validée',
-      state: rejected ? 'current' : pastReview ? 'done' : status === 'in_review' ? 'current' : 'upcoming',
+      label: rejected ? 'Rejetée' : expired ? 'Périmée' : 'Validée',
+      state: stopped ? 'current' : pastReview ? 'done' : status === 'in_review' ? 'current' : 'upcoming',
       date: request.decidedAt,
       detail: request.decisionNote,
     },
     {
       id: 'stock',
       label: 'Analyse stock',
-      state: rejected ? 'skipped' : pastReview ? 'done' : 'upcoming',
+      state: stopped ? 'skipped' : pastReview ? 'done' : 'upcoming',
     },
     {
       id: 'supply',
       label: toStore ? 'Sortie de stock' : 'Approvisionnement',
-      state: rejected ? 'skipped' : pastSupply || request.takenAt ? 'done' : status === 'approved' ? 'current' : 'upcoming',
+      state: stopped ? 'skipped' : pastSupply || request.takenAt ? 'done' : status === 'approved' ? 'current' : 'upcoming',
       date: request.handedOffAt ?? request.takenAt,
       detail: assigneeName
         ? request.takenAt
@@ -248,7 +256,7 @@ function buildTimeline(
     {
       id: 'order',
       label: 'Commande',
-      state: rejected || toStore ? 'skipped' : order ? 'done' : request.takenAt ? 'current' : pastSupply ? 'current' : 'upcoming',
+      state: stopped || toStore ? 'skipped' : order ? 'done' : request.takenAt ? 'current' : pastSupply ? 'current' : 'upcoming',
       date: order?.createdAt,
       detail: order
         ? order.code ?? order.id.toUpperCase()
@@ -261,7 +269,7 @@ function buildTimeline(
     {
       id: 'receipt',
       label: 'Réception',
-      state: rejected || toStore ? 'skipped' : receipt?.status === 'validated' ? 'done' : order ? 'current' : 'upcoming',
+      state: stopped || toStore ? 'skipped' : receipt?.status === 'validated' ? 'done' : order ? 'current' : 'upcoming',
       date: receipt?.date,
       detail: receipt ? receipt.code ?? receipt.id.toUpperCase() : order ? 'En attente magasin' : undefined,
     },

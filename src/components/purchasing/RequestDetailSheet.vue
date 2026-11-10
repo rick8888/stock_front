@@ -87,7 +87,8 @@ const showSourcing = computed(
   () =>
     Boolean(props.overview?.request.takenAt) &&
     props.overview?.decision !== 'issue' &&
-    status.value !== 'rejected',
+    status.value !== 'rejected' &&
+    status.value !== 'expired',
 )
 const canReceive = computed(
   () =>

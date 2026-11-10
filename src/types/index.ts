@@ -373,6 +373,8 @@ export type ProcurementStatus =
   | 'ordered'
   | 'closed'
   | 'cancelled'
+  /** Fermée automatiquement faute de suite — voir procurement:expire-stale. */
+  | 'expired'
 
 export type RequestPriority = 'low' | 'medium' | 'high'
 

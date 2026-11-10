@@ -12,7 +12,8 @@ const variant = computed(() =>
       ? 'warning'
       : key.value === 'approved' || key.value === 'ordered' || key.value === 'closed'
         ? 'success'
-        : 'outline',
+        : // Une demande périmée n'est pas un refus : elle s'est éteinte d'elle-même.
+          'outline',
 )
 </script>
 
