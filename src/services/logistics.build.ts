@@ -10,7 +10,7 @@ import type {
   Task,
   Warehouse,
 } from '@/types'
-import { getCarrier } from '@/services/carriers.stub'
+import { getCarrier } from '@/services/carriers.service'
 import { haversineKm, locationFor, pointAlong } from '@/utils/geo'
 import { uid } from '@/utils/helpers'
 

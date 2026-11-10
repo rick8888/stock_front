@@ -1,5 +1,5 @@
 import type { ShippingNote } from '@/types'
-import { getCarrier } from '@/services/carriers.stub'
+import { getCarrier } from '@/services/carriers.service'
 import { assemblePdf, downloadBlob, type PdfLine } from '@/utils/pdf'
 
 export interface PackageLabelInput {

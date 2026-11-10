@@ -8,7 +8,7 @@ import Label from '@/components/ui/Label.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import type { Carrier, Customer, Product, ShippingNote, Warehouse } from '@/types'
 import type { ShippingNoteInput } from '@/repositories/interfaces'
-import { listCarriers } from '@/services/carriers.stub'
+import { listCarriers, refreshCarriers } from '@/services/carriers.service'
 
 interface FormLine {
   key: string
@@ -40,7 +40,10 @@ const carrierId = ref('')
 const lines = ref<FormLine[]>([blankLine()])
 
 const editing = computed(() => Boolean(props.note))
-const carriers = computed<Carrier[]>(() => listCarriers())
+const carriers = ref<Carrier[]>(listCarriers())
+void refreshCarriers().then((items) => {
+  carriers.value = items
+})
 const catalog = computed(() => props.products.filter((item) => !item.archived))
 const selectedWarehouse = computed(() => props.warehouses.find((item) => item.id === warehouseId.value))
 const customerList = computed(() => (props.customers ?? []).filter((item) => item.active !== false))

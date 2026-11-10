@@ -47,6 +47,63 @@ export class MockReceiptRepository implements ReceiptRepository {
     })
   }
 
+  createFromOrder(purchaseOrderId: string) {
+    return mutate(() => {
+      const existing = db().receipts.find((item) => item.purchaseOrderId === purchaseOrderId)
+      if (existing) return existing
+      const order = db().purchaseOrders.find((item) => item.id === purchaseOrderId)
+      if (!order) throw new Error('Commande introuvable')
+      const warehouse = db().warehouses.find((item) => item.id === order.warehouseId)
+      const items = order.items.map((item) => ({
+        productId: item.productId,
+        expected: item.quantity,
+        received: 0,
+      }))
+      const expected = items.reduce((sum, item) => sum + item.expected, 0)
+      const seq = 10 + db().receipts.length + 1
+      const now = new Date().toISOString()
+      const receipt: Receipt = {
+        id: uid('rcp'),
+        code: `BR-2026-${String(seq).padStart(5, '0')}`,
+        purchaseOrderId: order.id,
+        warehouseId: order.warehouseId,
+        expected,
+        received: 0,
+        date: `${order.expectedDate}T09:00:00.000Z`,
+        status: 'pending',
+        userId: warehouse?.managerUserId ?? '',
+        items,
+      }
+      db().receipts.unshift(receipt)
+      if (warehouse?.managerUserId) {
+        db().tasks.unshift({
+          id: uid('tsk'),
+          title: `Réceptionner ${order.code ?? order.id.toUpperCase()}`,
+          description: 'Contrôler l’arrivage puis mettre le stock à jour.',
+          assigneeId: warehouse.managerUserId,
+          dueAt: `${order.expectedDate}T10:00:00.000Z`,
+          status: 'todo',
+          priority: 'high',
+          relatedType: 'receipt',
+          relatedId: receipt.id,
+        })
+      }
+      db().alerts.unshift({
+        id: uid('al'),
+        title: `${receipt.code} à réceptionner`,
+        message: `Arrivage prévu pour ${order.code ?? order.id.toUpperCase()}.`,
+        severity: 'warning',
+        createdAt: now,
+        read: false,
+        domain: 'stock',
+        relatedId: receipt.id,
+        warehouseId: receipt.warehouseId,
+        roles: ALERT_ROLES.receipt,
+      })
+      return receipt
+    })
+  }
+
   validate(
     id: string,
     received: number,

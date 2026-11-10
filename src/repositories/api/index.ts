@@ -271,6 +271,11 @@ export class ApiReceiptRepository implements ReceiptRepository {
   create(input: Omit<Receipt, 'id'>): Promise<Receipt> {
     return httpClient.request('/receipts', { method: 'POST', body: JSON.stringify(input) })
   }
+  createFromOrder(purchaseOrderId: string): Promise<Receipt> {
+    return httpClient.request(`/receipts/from-order/${encodeURIComponent(purchaseOrderId)}`, {
+      method: 'POST',
+    })
+  }
   validate(
     id: string,
     received: number,
@@ -311,6 +316,9 @@ export class ApiDeliveryRepository implements DeliveryRepository {
 export class ApiLogisticsRepository implements LogisticsRepository {
   shipments(): Promise<Shipment[]> {
     return httpClient.request('/shipments')
+  }
+  carriers(): Promise<import('@/types').Carrier[]> {
+    return httpClient.request('/carriers')
   }
   routes(): Promise<Route[]> {
     return httpClient.request('/routes')

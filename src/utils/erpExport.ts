@@ -1,5 +1,5 @@
 import { downloadCsv } from '@/utils/csv'
-import { getCarrier } from '@/services/carriers.stub'
+import { getCarrier } from '@/services/carriers.service'
 import type { ShippingNote } from '@/types'
 import { opsToday } from '@/utils/helpers'
 

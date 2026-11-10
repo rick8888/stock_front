@@ -8,7 +8,8 @@ import type {
   ShippingNoteInput,
   VehicleInput,
 } from '@/repositories/interfaces'
-import { bookTrackingNumber, getCarrier } from '@/services/carriers.stub'
+import { carriers as carrierCatalog } from '@/mocks/carriers'
+import { bookTrackingNumber, getCarrier } from '@/services/carriers.service'
 import { uid, opsToday } from '@/utils/helpers'
 import { consumeNoteReservation, releaseNoteStock, reserveNoteStock } from '@/utils/stockReserve'
 import { consumeLotsFefo } from '@/utils/stockLots'
@@ -130,6 +131,10 @@ export class MockLogisticsRepository implements LogisticsRepository {
 
   drivers() {
     return withLatency(() => db().drivers)
+  }
+
+  carriers() {
+    return withLatency(() => carrierCatalog.filter((item) => item.active !== false))
   }
 
   shippingNotes() {

@@ -182,6 +182,8 @@ export interface ReceiptRepository {
   list(): Promise<Receipt[]>
   validate(id: string, received: number, userId: string, lines?: ReceiptValidateLine[]): Promise<Receipt>
   create(input: Omit<Receipt, 'id'>): Promise<Receipt>
+  /** Crée (ou renvoie) le BR lié à un OA — idempotent côté API. */
+  createFromOrder(purchaseOrderId: string): Promise<Receipt>
 }
 
 export interface DeliveryLineInput {
@@ -356,6 +358,7 @@ export interface LogisticsRepository {
   routes(): Promise<Route[]>
   vehicles(): Promise<Vehicle[]>
   drivers(): Promise<Driver[]>
+  carriers(): Promise<import('@/types').Carrier[]>
   shippingNotes(): Promise<ShippingNote[]>
   createShippingNote(input: ShippingNoteInput): Promise<ShippingNote>
   updateShippingNote(id: string, input: Partial<ShippingNoteInput>): Promise<ShippingNote>

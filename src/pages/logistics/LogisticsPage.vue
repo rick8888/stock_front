@@ -37,7 +37,7 @@ import { useCustomers } from '@/composables/useCustomers'
 import { documentWhatsAppMessage } from '@/utils/documents'
 import { downloadShippingNoteLabel } from '@/utils/labels'
 import { exportShippingNotesErpCsv } from '@/utils/erpExport'
-import { carrierTrackingUrl, listCarriers } from '@/services/carriers.stub'
+import { carrierTrackingUrl, listCarriers, refreshCarriers } from '@/services/carriers.service'
 import { toast } from 'vue-sonner'
 import { DELIVERY_LABEL, DRIVER_LABEL, ROUTE_LABEL, SHIPMENT_LABEL, SHIPPING_NOTE_LABEL, VEHICLE_LABEL } from '@/config/logistics'
 import { deliveryOverview, routeOverview, shipmentOverview } from '@/services/logistics.overview'
@@ -73,7 +73,10 @@ const noteLoadError = ref('')
 const loadPickOpen = ref(false)
 const loadPickLines = ref<PickLine[]>([])
 const carrierDraftId = ref('car-fleet')
-const carriers = computed(() => listCarriers())
+const carriers = ref(listCarriers())
+void refreshCarriers().then((items) => {
+  carriers.value = items
+})
 const canCreate = computed(() => can('delivery.create'))
 const canManage = computed(() => can('delivery.create') || can('delivery.update'))
 const canPrepare = computed(() => can('stock.issue') || can('delivery.create') || can('delivery.update'))
@@ -527,7 +530,7 @@ async function bookCarrierForNote() {
   if (!note || !carrierDraftId.value) return
   await run(async () => {
     await assignCarrier(note.id, { carrierId: carrierDraftId.value, book: true })
-    toast.success('Transporteur réservé (stub)', {
+    toast.success('Transporteur réservé', {
       description: 'Numéro de suivi généré — prêt pour étiquette / export ERP.',
     })
   })
