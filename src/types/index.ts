@@ -125,6 +125,9 @@ export interface CustomerAddress {
   address: string
   city: string
   isDefault?: boolean
+  /** Coordonnées réelles du point de livraison — prioritaire sur le géocodage approximatif. */
+  lat?: number
+  lng?: number
 }
 
 export interface Customer {
@@ -640,6 +643,76 @@ export interface Route {
   path?: GeoPoint[]
   currentPosition?: GeoPoint
   progress: number
+  lastLat?: number | null
+  lastLng?: number | null
+  lastLocatedAt?: string | null
+  eta?: string | null
+  etaAt?: string | null
+}
+
+export type TrackingEventType = 'ping' | 'departed' | 'arrived' | 'delivered' | 'failed'
+export type TrackingSource = 'driver_app' | 'device' | 'manual' | 'system'
+
+export interface TrackingEvent {
+  id: string
+  companyId?: string | null
+  subjectType: 'route' | 'vehicle' | 'delivery' | 'shipment'
+  subjectId: string
+  routeId?: string | null
+  vehicleId?: string | null
+  driverId?: string | null
+  lat: number
+  lng: number
+  accuracyM?: number | null
+  speedKmh?: number | null
+  heading?: number | null
+  progress?: number | null
+  eventType: TrackingEventType
+  source: TrackingSource
+  recordedAt?: string | null
+}
+
+export interface TrackingPingInput {
+  routeId: string
+  lat: number
+  lng: number
+  accuracyM?: number
+  speedKmh?: number
+  heading?: number
+  eventType?: TrackingEventType
+  source?: TrackingSource
+  recordedAt?: string
+}
+
+export interface RouteTrackingSnapshot {
+  routeId: string
+  route: Route
+  lastPosition?: GeoPoint | null
+  progress: number
+  eta?: string | null
+  events: TrackingEvent[]
+  stops: {
+    id: string
+    client?: string | null
+    status?: string | null
+    sequence?: number | null
+    progress: number
+    location?: GeoPoint | null
+    currentPosition?: GeoPoint | null
+    eta?: string | null
+  }[]
+}
+
+export interface LiveRouteTracking {
+  routeId: string
+  name: string
+  status?: string | null
+  progress: number
+  eta?: string | null
+  lastPosition?: GeoPoint | null
+  vehicleId?: string | null
+  driverId?: string | null
+  warehouseId?: string | null
 }
 
 export type VehicleStatus = 'available' | 'on_mission' | 'maintenance'
@@ -647,6 +720,9 @@ export type VehicleStatus = 'available' | 'on_mission' | 'maintenance'
 export interface Vehicle {
   id: string
   name: string
+  lastLat?: number | null
+  lastLng?: number | null
+  lastLocatedAt?: string | null
   plate: string
   status: VehicleStatus
   warehouseId: string

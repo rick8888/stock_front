@@ -40,6 +40,7 @@ import type {
   WarehouseLocationInput,
   StockPlacementRepository,
   SupplierProductRepository,
+  TrackingRepository,
 } from '@/repositories/interfaces'
 import type {
   Delivery,
@@ -81,6 +82,10 @@ import type {
   Alert,
   PlanningEvent,
   Role,
+  LiveRouteTracking,
+  RouteTrackingSnapshot,
+  TrackingEvent,
+  TrackingPingInput,
 } from '@/types'
 
 export class ApiProductRepository implements ProductRepository {
@@ -359,6 +364,21 @@ export class ApiLogisticsRepository implements LogisticsRepository {
     return httpClient.request(`/shipping-notes/${id}/load`, {
       method: 'POST',
       body: JSON.stringify({ userId }),
+    })
+  }
+}
+
+export class ApiTrackingRepository implements TrackingRepository {
+  live(): Promise<LiveRouteTracking[]> {
+    return httpClient.request('/tracking/live')
+  }
+  route(id: string): Promise<RouteTrackingSnapshot> {
+    return httpClient.request(`/tracking/routes/${encodeURIComponent(id)}`)
+  }
+  ping(input: TrackingPingInput): Promise<{ event: TrackingEvent; route: Route; etaAt?: string }> {
+    return httpClient.request('/tracking/ping', {
+      method: 'POST',
+      body: JSON.stringify(input),
     })
   }
 }

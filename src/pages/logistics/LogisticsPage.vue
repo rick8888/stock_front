@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { CircleAlert, MapPin, Package, Plus, Truck } from 'lucide-vue-next'
 import { useDeliveries, useRoutes, useVehicles, useDrivers, useShipments, useShippingNotes } from '@/composables/useLogistics'
+import { useLiveTracking } from '@/composables/useLiveTracking'
 import { usePermissions } from '@/composables/usePermissions'
 import { useWarehouses } from '@/composables/useWarehouses'
 import { useProducts } from '@/composables/useProducts'
@@ -51,8 +52,9 @@ const route = useRoute()
 const store = useDataStore()
 const { products } = useProducts()
 const { warehouses, allWarehouses } = useWarehouses()
-const { deliveries, confirmDelivery, createDelivery, updateDelivery, loading } = useDeliveries()
-const { routes, createRoute, updateRoute } = useRoutes()
+const { deliveries, confirmDelivery, createDelivery, updateDelivery, loading, refresh: refreshDeliveries } = useDeliveries()
+const { routes, createRoute, updateRoute, refresh: refreshRoutes } = useRoutes()
+const { live: liveRoutes } = useLiveTracking(20_000)
 const { vehicles, createVehicle, updateVehicle } = useVehicles()
 const { drivers, createDriver, updateDriver } = useDrivers()
 const { shipments, createShipment, updateShipment } = useShipments()
@@ -132,12 +134,28 @@ const showCreate = computed(() => {
   return canCreate.value
 })
 
+/** Fusionne le dernier ping live dans les tournées pour que la carte suive le GPS. */
+const trackedRoutes = computed(() => {
+  const byId = new Map(liveRoutes.value.map((item) => [item.routeId, item]))
+  return routes.value.map((route) => {
+    const live = byId.get(route.id)
+    if (!live?.lastPosition) return route
+    return {
+      ...route,
+      progress: live.progress ?? route.progress,
+      currentPosition: live.lastPosition,
+      eta: live.eta ?? route.eta,
+      status: (live.status as Route['status']) || route.status,
+    }
+  })
+})
+
 const ctx = computed(() => ({
   warehouses: store.db.warehouses,
   drivers: drivers.value,
   users: store.db.users,
   vehicles: vehicles.value,
-  routes: routes.value,
+  routes: trackedRoutes.value,
   deliveries: deliveries.value,
 }))
 
@@ -145,9 +163,14 @@ const counts = computed(() => ({
   risk: deliveries.value.filter((item) => item.status === 'at_risk' || item.status === 'failed').length,
   moving: deliveries.value.filter((item) => item.status === 'in_transit').length,
   delivered: deliveries.value.filter((item) => item.status === 'delivered').length,
-  routes: routes.value.filter((item) => item.status === 'in_progress').length,
+  routes: trackedRoutes.value.filter((item) => item.status === 'in_progress').length,
   readyNotes: scopedNotes.value.filter((item) => item.status === 'ready').length,
 }))
+
+watch(liveRoutes, () => {
+  void refreshRoutes()
+  void refreshDeliveries()
+})
 
 const scopedNotes = computed(() =>
   shippingNotes.value.filter((item) => inScopeWarehouse(item.warehouseId)),
@@ -258,7 +281,7 @@ const selectedShipment = computed(() => {
 })
 
 const selectedRoute = computed(() => {
-  const item = routes.value.find((row) => row.id === selectedRouteId.value)
+  const item = trackedRoutes.value.find((row) => row.id === selectedRouteId.value)
   return item ? routeOverview(item, ctx.value) : null
 })
 
@@ -660,7 +683,12 @@ function stopCount(routeId: string) {
       <SignalCard label="Bons prêts" :value="counts.readyNotes" trend="À affecter à une tournée" :icon="Package" />
       <SignalCard label="À risque" :value="counts.risk" trend="Créneaux sous tension" :icon="CircleAlert" tone="warning" />
       <SignalCard label="En tournée" :value="counts.moving" trend="Véhicules en mouvement" :icon="Truck" />
-      <SignalCard label="Tournées actives" :value="counts.routes" trend="En cours de tournée" :icon="MapPin" />
+      <SignalCard
+        label="Tournées actives"
+        :value="counts.routes"
+        :trend="liveRoutes.length ? `${liveRoutes.length} position(s) live` : 'En cours de tournée'"
+        :icon="MapPin"
+      />
     </div>
 
     <Tabs v-model="tab" :tabs="tabs" class="mb-6" />

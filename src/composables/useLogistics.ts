@@ -247,6 +247,8 @@ export function useDriverToday() {
     completeCurrent,
     completeDelivery,
     failDelivery,
-    refresh: deliveriesList.refresh,
+    refresh: async () => {
+      await Promise.all([deliveriesList.refresh(true), routesList.refresh(true), shipmentsList.refresh(true)])
+    },
   }
 }

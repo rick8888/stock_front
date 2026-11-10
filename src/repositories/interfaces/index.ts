@@ -194,6 +194,8 @@ export interface DeliveryInput {
   client?: string
   address?: string
   city?: string
+  lat?: number
+  lng?: number
   scheduledAt: string
   routeId: string
   notes?: string
@@ -289,6 +291,8 @@ export interface CustomerInput {
     address: string
     city: string
     isDefault?: boolean
+    lat?: number
+    lng?: number
   }[]
 }
 
@@ -366,6 +370,16 @@ export interface LogisticsRepository {
   createShipment(input: ShipmentInput): Promise<Shipment>
   updateShipment(id: string, input: Partial<ShipmentInput>): Promise<Shipment>
   loadShippingNote(id: string, userId: string): Promise<ShippingNote>
+}
+
+export interface TrackingRepository {
+  live(): Promise<import('@/types').LiveRouteTracking[]>
+  route(id: string): Promise<import('@/types').RouteTrackingSnapshot>
+  ping(input: import('@/types').TrackingPingInput): Promise<{
+    event: import('@/types').TrackingEvent
+    route: import('@/types').Route
+    etaAt?: string
+  }>
 }
 
 export interface TaskRepository {

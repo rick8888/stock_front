@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Check, MapPin, Truck } from 'lucide-vue-next'
 import { useDriverToday, useVehicles, useDrivers } from '@/composables/useLogistics'
+import { useDriverGps } from '@/composables/useDriverGps'
 import { useCurrentUser } from '@/composables/useAuth'
 import { useActionBusy } from '@/composables/useActionBusy'
 import { usePermissions } from '@/composables/usePermissions'
@@ -34,8 +35,25 @@ const { run } = useActionBusy()
 const store = useDataStore()
 const { vehicles } = useVehicles()
 const { drivers } = useDrivers()
-const { day, days, deliveries, routes, shipments, remaining, next, loading, completeCurrent, completeDelivery, failDelivery } =
-  useDriverToday()
+const {
+  day,
+  days,
+  deliveries,
+  routes,
+  shipments,
+  remaining,
+  next,
+  loading,
+  completeCurrent,
+  completeDelivery,
+  failDelivery,
+  refresh: refreshDriverDay,
+} = useDriverToday()
+const { enabled: gpsEnabled, lastError: gpsError, lastPingAt } = useDriverGps(routes)
+
+watch(lastPingAt, (value) => {
+  if (value) void refreshDriverDay()
+})
 
 type View = 'routes' | 'stops' | 'shipments'
 
@@ -240,6 +258,16 @@ function openDelivery(id: string) {
     <PageSkeleton v-if="loading" class="mt-6" />
 
     <template v-else>
+      <p
+        v-if="isToday && gpsEnabled"
+        class="mt-4 flex items-center gap-2 text-xs text-muted-foreground"
+      >
+        <MapPin class="size-3.5 shrink-0" />
+        <span v-if="gpsError">GPS : {{ gpsError }}</span>
+        <span v-else-if="lastPingAt">Position partagée · {{ formatTime(lastPingAt) }}</span>
+        <span v-else>Position en cours d’envoi…</span>
+      </p>
+
       <article v-if="isToday && next" class="surface mt-5 p-5">
         <p class="section-title">Prochain arrêt</p>
         <h2 class="mt-1 text-2xl font-semibold">{{ next.client }}</h2>

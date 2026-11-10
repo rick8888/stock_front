@@ -204,9 +204,12 @@ export function assembleDelivery(
   const status = input.status ?? existing?.status ?? 'prepared'
   const samePlace =
     existing && existing.address === address && existing.city === city && existing.client === client
-  const location = samePlace
-    ? existing.location
-    : locationFor(city, address, client, origin)
+  // Coords fournies (adresse client) > position déjà connue > approximation ville.
+  const location = input.lat != null && input.lng != null
+    ? { lat: input.lat, lng: input.lng, label: client }
+    : samePlace
+      ? existing.location
+      : locationFor(city, address, client, origin)
   const siblings = ctx.deliveries.filter((item) => item.routeId === input.routeId && item.id !== existing?.id)
   const sequence = input.sequence ?? existing?.sequence ?? Math.max(0, ...siblings.map((item) => item.sequence)) + 1
   const path = waypointPath([origin, location])

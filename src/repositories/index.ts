@@ -15,6 +15,7 @@ import type {
   StockRepository,
   SupplierRepository,
   SupplierProductRepository,
+  TrackingRepository,
   TaskRepository,
   UserRepository,
   WarehouseRepository,
@@ -31,6 +32,7 @@ import { MockWarehouseRepository } from '@/repositories/mock/warehouse.repositor
 import { MockStockRepository } from '@/repositories/mock/stock.repository'
 import { MockSupplierRepository } from '@/repositories/mock/supplier.repository'
 import { MockSupplierProductRepository } from '@/repositories/mock/supplierProduct.repository'
+import { MockTrackingRepository } from '@/repositories/mock/tracking.repository'
 import { MockProcurementRepository } from '@/repositories/mock/procurement.repository'
 import { MockPurchaseRepository } from '@/repositories/mock/purchase.repository'
 import { MockConsultationRepository } from '@/repositories/mock/consultation.repository'
@@ -70,6 +72,7 @@ import {
   ApiStockRepository,
   ApiSupplierRepository,
   ApiSupplierProductRepository,
+  ApiTrackingRepository,
   ApiTaskRepository,
   ApiUserRepository,
   ApiWarehouseLocationRepository,
@@ -87,6 +90,9 @@ export const supplierRepository: SupplierRepository = useApi ? new ApiSupplierRe
 export const supplierProductRepository: SupplierProductRepository = useApi
   ? new ApiSupplierProductRepository()
   : new MockSupplierProductRepository()
+export const trackingRepository: TrackingRepository = useApi
+  ? new ApiTrackingRepository()
+  : new MockTrackingRepository()
 export const procurementRepository: ProcurementRepository = useApi
   ? new ApiProcurementRepository()
   : new MockProcurementRepository()
