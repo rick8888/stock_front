@@ -221,7 +221,8 @@ const kpis = computed(() => {
         <Button
           v-if="rec.quantity > 0 && can('procurement.create')"
           class="mt-4 w-full"
-          @click="emit('supply', row, rec.quantity)"
+          type="button"
+          @click.stop="emit('supply', row, rec.quantity)"
         >
           Créer un approvisionnement
         </Button>

@@ -1,5 +1,5 @@
 import type { InventoryLine, InventorySession, StockMovement, StockMovementType } from '@/types'
-import type { StockRepository } from '@/repositories/interfaces'
+import type { StockOverviewBoard, StockRepository } from '@/repositories/interfaces'
 import { assertInboundDocument, assertOutboundDocument, assertInventoryAdjust } from '@/utils/stockDocuments'
 import { consumePlacementPath } from '@/utils/placements'
 import {
@@ -7,8 +7,10 @@ import {
   inventoryModeFromScope,
   normalizeInventoryScope,
 } from '@/utils/inventoryScope'
+import { buildStockOverviewBoard } from '@/services/stock.overview'
 import { uid, opsToday } from '@/utils/helpers'
 import { db, mutate, withLatency } from './db'
+import { useAuthStore } from '@/stores/auth'
 
 function line(productId: string, warehouseId: string) {
   const item = db().stock.find((row) => row.productId === productId && row.warehouseId === warehouseId)
@@ -63,6 +65,14 @@ function tally(lines: InventoryLine[]) {
 export class MockStockRepository implements StockRepository {
   list() {
     return withLatency(() => db().stock)
+  }
+
+  overview(): Promise<StockOverviewBoard> {
+    return withLatency(() => {
+      const user = useAuthStore().currentUser
+      const warehouseIds = user?.warehouseIds?.length ? user.warehouseIds : undefined
+      return buildStockOverviewBoard(db(), warehouseIds)
+    })
   }
 
   movements() {

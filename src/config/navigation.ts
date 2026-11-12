@@ -64,6 +64,7 @@ const opsNav: NavSection[] = [
     label: 'Analyse',
     items: [
       { to: '/analytics', label: 'Tableaux de bord', icon: TrendingUp, permission: 'analytics.view', module: 'analytics' },
+      { to: '/analytics/forecasts', label: 'Réapprovisionnement', icon: TrendingUp, permission: 'analytics.view', module: 'analytics' },
       { to: '/analytics/reports', label: 'Rapports', icon: FileText, permission: 'analytics.view', module: 'analytics' },
       { to: '/assistant', label: 'Assistant', icon: Sparkles, module: 'assistant' },
     ],
@@ -73,7 +74,7 @@ const opsNav: NavSection[] = [
 const superAdminNav: NavSection[] = [
   {
     id: 'platform',
-    label: 'Bravo.Stock',
+    label: 'BravoStock',
     items: [
       { to: '/platform', label: 'Vue d’ensemble', icon: LayoutDashboard, permission: 'platform.view' },
       { to: '/platform', query: { tab: 'companies' }, label: 'Entreprises', icon: Building2, permission: 'platform.companies' },

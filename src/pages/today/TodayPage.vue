@@ -28,18 +28,28 @@ const router = useRouter()
 
 const queue = computed(() => brief.value?.queue ?? [])
 
-const metrics = computed(() => {
-  const stock = brief.value?.watchStock ?? []
-  const critical = stock.filter((row) => row.tone === 'critical').length
-  const watch = stock.length
-  const tasks = brief.value?.tasks.filter((task) => task.status !== 'done').length ?? 0
-  return [
-    { label: 'À traiter', value: queue.value.length },
-    { label: 'Tâches', value: tasks },
-    { label: 'Stock critique', value: critical },
-    { label: 'À surveiller', value: watch },
-  ]
-})
+const metrics = computed(() => [
+  {
+    label: 'Alertes non lues',
+    value: brief.value?.unreadAlerts ?? 0,
+    hint: 'À traiter aujourd’hui',
+  },
+  {
+    label: 'Critiques',
+    value: brief.value?.criticalAlerts ?? 0,
+    hint: 'Priorité absolue',
+  },
+  {
+    label: 'Tâches',
+    value: brief.value?.openTasksCount ?? 0,
+    hint: 'Assignées à vous',
+  },
+  {
+    label: 'Stock ≤ 3 j',
+    value: brief.value?.criticalStockCount ?? 0,
+    hint: 'Risque de rupture',
+  },
+])
 
 function open(to?: string) {
   if (to) void router.push(to)
@@ -55,7 +65,11 @@ function openStock(productId: string, warehouseId: string) {
     <header class="mb-5">
       <h1 class="page-title">{{ greeting }}</h1>
       <p class="page-desc">
-        {{ queue.length ? `${queue.length} action${queue.length > 1 ? 's' : ''} à enchaîner.` : 'Rien à traiter pour le moment.' }}
+        {{
+          (brief?.actionableCount ?? 0) > 0
+            ? `${brief?.unreadAlerts ?? 0} alerte${(brief?.unreadAlerts ?? 0) > 1 ? 's' : ''} non lue${(brief?.unreadAlerts ?? 0) > 1 ? 's' : ''} · ${Math.min(queue.length, brief?.actionableCount ?? 0)} prioritaire${queue.length > 1 ? 's' : ''} affichée${queue.length > 1 ? 's' : ''}.`
+            : 'Rien à traiter pour le moment.'
+        }}
         <span v-if="currentUser?.title" class="text-muted-foreground/80"> · {{ currentUser.title }}</span>
       </p>
     </header>
@@ -67,12 +81,13 @@ function openStock(productId: string, warehouseId: string) {
         <div v-for="metric in metrics" :key="metric.label" class="metric-item">
           <p class="metric-label">{{ metric.label }}</p>
           <p class="metric-value tabular-nums">{{ metric.value }}</p>
+          <p v-if="metric.hint" class="mt-0.5 text-[10px] text-muted-foreground">{{ metric.hint }}</p>
         </div>
       </div>
 
       <div class="grid items-start gap-5 lg:grid-cols-12">
         <div class="lg:col-span-8">
-          <SectionCard :title="queue.length ? 'À faire maintenant' : 'File du jour'">
+          <SectionCard :title="queue.length ? 'Alertes & actions ops' : 'File du jour'">
             <div v-if="queue.length" class="divide-y divide-border/60 -mx-4 -my-3">
               <div v-for="item in queue" :key="item.id" class="px-4">
                 <AttentionCard
@@ -84,7 +99,11 @@ function openStock(productId: string, warehouseId: string) {
                 />
               </div>
             </div>
-            <EmptyState v-else title="C’est calme" description="Dès qu’une réception, un écart ou une rupture arrive, elle s’affiche ici." />
+            <EmptyState
+              v-else
+              title="C’est calme"
+              description="Les alertes backend (stock bas, retards, livraisons) et les actions du jour s’affichent ici."
+            />
           </SectionCard>
         </div>
 

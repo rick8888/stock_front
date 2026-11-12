@@ -57,11 +57,11 @@ const draftInterval = ref<BillingInterval>('monthly')
 const opsFocus = ref<'risks' | 'delayed' | 'deliveries' | null>(null)
 
 const titles: Record<string, { title: string; description: string }> = {
-  overview: { title: 'Compte', description: 'Votre entreprise, votre abonnement et vos factures Bravo.Stock.' },
-  company: { title: 'Entreprise', description: 'Fiche légale et coordonnées visibles par Bravo.Stock.' },
+  overview: { title: 'Compte', description: 'Votre entreprise, votre abonnement et vos factures BravoStock.' },
+  company: { title: 'Entreprise', description: 'Fiche légale et coordonnées visibles par BravoStock.' },
   admins: { title: 'Administrateurs', description: 'Les comptes qui gèrent le quotidien opérationnel.' },
   subscription: { title: 'Abonnement', description: 'Plan, facturation et sièges de votre entreprise.' },
-  billing: { title: 'Factures', description: 'Les factures Bravo.Stock de votre compte.' },
+  billing: { title: 'Factures', description: 'Les factures BravoStock de votre compte.' },
 }
 
 const header = computed(() => titles[tab.value] ?? titles.overview)
@@ -245,12 +245,12 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
       <div v-if="locked" class="surface border border-amber-200 bg-amber-50 px-4 py-3">
         <p class="text-sm font-semibold text-amber-950">Compte suspendu</p>
         <p class="mt-1 text-sm text-amber-900">
-          Bravo.Stock a suspendu cette entreprise. Contactez le support pour rétablir l’accès opérationnel.
+          BravoStock a suspendu cette entreprise. Contactez le support pour rétablir l’accès opérationnel.
         </p>
       </div>
       <div v-else-if="company?.status === 'churned'" class="surface border border-zinc-200 bg-zinc-50 px-4 py-3">
         <p class="text-sm font-semibold">Abonnement résilié</p>
-        <p class="mt-1 text-sm text-muted-foreground">Ce compte n’est plus facturé. Contactez Bravo.Stock pour le réactiver.</p>
+        <p class="mt-1 text-sm text-muted-foreground">Ce compte n’est plus facturé. Contactez BravoStock pour le réactiver.</p>
       </div>
       <p v-if="actionError" class="text-sm text-destructive">{{ actionError }}</p>
 

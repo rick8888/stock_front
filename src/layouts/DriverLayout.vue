@@ -26,7 +26,7 @@ function navClass(to: string, view?: string) {
 <template>
   <div class="flex min-h-full flex-col bg-background theme-ops">
     <header class="flex h-12 items-center justify-between border-b border-border/60 px-4">
-      <p class="text-[13px] font-semibold tracking-tight">Bravo.Stock</p>
+      <p class="text-[13px] font-semibold tracking-tight">BravoStock</p>
       <div class="flex items-center gap-1">
         <ThemeToggle />
         <div v-if="currentUser" class="ml-1 flex items-center gap-2 border-l border-border/70 pl-2">

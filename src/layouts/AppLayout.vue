@@ -46,7 +46,7 @@ const mobileNav = computed(() =>
     </div>
     <BottomNav v-if="!isConsole" />
     <GlobalSearch v-if="!isConsole" />
-    <Sheet v-if="!isConsole" :open="ui.assistantOpen" title="Assistant Bravo.Stock" @close="ui.closeAssistant()">
+    <Sheet v-if="!isConsole" :open="ui.assistantOpen" title="Assistant BravoStock" @close="ui.closeAssistant()">
       <div class="flex h-[70vh] flex-col">
         <AssistantPanel />
       </div>

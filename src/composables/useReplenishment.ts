@@ -16,6 +16,37 @@ export interface ReplenishmentRow extends ReplenishmentSuggestion {
   supplierName: string
 }
 
+function enrich(
+  list: ReplenishmentSuggestion[],
+  products: { id: string; name: string; sku: string; unit: string }[],
+  warehouses: { id: string; name: string }[],
+  suppliers: { id: string; name: string }[],
+  inScopeWarehouse: (id: string) => boolean,
+): ReplenishmentRow[] {
+  const productById = new Map(products.map((item) => [item.id, item]))
+  const warehouseById = new Map(warehouses.map((item) => [item.id, item]))
+  const supplierById = new Map(suppliers.map((item) => [item.id, item]))
+
+  return list
+    .filter((row) => inScopeWarehouse(row.warehouseId))
+    .map((row) => {
+      const product = productById.get(row.productId)
+      return {
+        ...row,
+        productName: product?.name ?? row.productId,
+        sku: product?.sku ?? '',
+        unit: product?.unit ?? 'unité',
+        warehouseName: warehouseById.get(row.warehouseId)?.name ?? row.warehouseId,
+        supplierName: row.supplierId ? (supplierById.get(row.supplierId)?.name ?? '') : '',
+      }
+    })
+    .sort((a, b) => {
+      const rank = { high: 0, medium: 1, low: 2 }
+      if (rank[a.risk] !== rank[b.risk]) return rank[a.risk] - rank[b.risk]
+      return b.suggestedQuantity - a.suggestedQuantity
+    })
+}
+
 export function useReplenishment() {
   const { scopedWarehouseIds, inScopeWarehouse } = usePermissions()
   const suggestions = useAsyncList(() => replenishmentService.list())
@@ -24,31 +55,33 @@ export function useReplenishment() {
   const suppliers = useAsyncList(() => supplierService.list())
 
   const computing = ref(false)
+  const simulating = ref(false)
+  const simulation = ref<ReplenishmentSuggestion[] | null>(null)
+  const serviceLevel = ref(0.95)
+  const leadTimeDays = ref<number | null>(null)
+
+  const persistedRows = computed(() =>
+    enrich(
+      suggestions.data.value,
+      products.data.value,
+      warehouses.data.value,
+      suppliers.data.value,
+      inScopeWarehouse,
+    ),
+  )
 
   const rows = computed<ReplenishmentRow[]>(() => {
-    const productById = new Map(products.data.value.map((item) => [item.id, item]))
-    const warehouseById = new Map(warehouses.data.value.map((item) => [item.id, item]))
-    const supplierById = new Map(suppliers.data.value.map((item) => [item.id, item]))
-
-    return suggestions.data.value
-      .filter((row) => inScopeWarehouse(row.warehouseId))
-      .map((row) => {
-        const product = productById.get(row.productId)
-        return {
-          ...row,
-          productName: product?.name ?? row.productId,
-          sku: product?.sku ?? '',
-          unit: product?.unit ?? 'unité',
-          warehouseName: warehouseById.get(row.warehouseId)?.name ?? row.warehouseId,
-          supplierName: row.supplierId ? (supplierById.get(row.supplierId)?.name ?? '') : '',
-        }
-      })
-      .sort((a, b) => {
-        const rank = { high: 0, medium: 1, low: 2 }
-        if (rank[a.risk] !== rank[b.risk]) return rank[a.risk] - rank[b.risk]
-        return b.suggestedQuantity - a.suggestedQuantity
-      })
+    if (!simulation.value) return persistedRows.value
+    return enrich(
+      simulation.value,
+      products.data.value,
+      warehouses.data.value,
+      suppliers.data.value,
+      inScopeWarehouse,
+    )
   })
+
+  const isSimulation = computed(() => simulation.value !== null)
 
   const counts = computed(() => ({
     all: rows.value.length,
@@ -75,6 +108,7 @@ export function useReplenishment() {
     if (!ids.length) return
     computing.value = true
     try {
+      simulation.value = null
       await replenishmentService.computeMany(ids, refreshDemand)
       await suggestions.refresh(true)
       emitDataChanged()
@@ -83,17 +117,50 @@ export function useReplenishment() {
     }
   }
 
+  async function runSimulate(level = serviceLevel.value, lead = leadTimeDays.value) {
+    const ids = targetWarehouseIds.value
+    if (!ids.length) return
+    simulating.value = true
+    serviceLevel.value = level
+    leadTimeDays.value = lead
+    try {
+      const batches = await Promise.all(
+        ids.map((id) =>
+          replenishmentService.simulate(id, {
+            serviceLevel: level,
+            ...(lead != null ? { leadTimeDays: lead } : {}),
+          }),
+        ),
+      )
+      simulation.value = batches.flat()
+    } finally {
+      simulating.value = false
+    }
+  }
+
+  function clearSimulation() {
+    simulation.value = null
+    leadTimeDays.value = null
+  }
+
   return {
     rows,
+    persistedRows,
     counts,
     estimatedCost,
     computedAt,
     computing,
+    simulating,
+    isSimulation,
+    serviceLevel,
+    leadTimeDays,
     loading: suggestions.loading,
     error: suggestions.error,
     products: products.data,
     warehouses: warehouses.data,
     refresh: suggestions.refresh,
     recompute,
+    runSimulate,
+    clearSimulation,
   }
 }

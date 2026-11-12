@@ -237,6 +237,7 @@ export interface StockOverviewRow {
   supplierName: string
   status: StockHealth
   flags: { onOrder: boolean }
+  recommendation?: StockRecommendation
   imageUrl?: string
   images?: string[]
   description?: string
@@ -765,6 +766,9 @@ export interface Alert {
   warehouseId?: string
   userId?: string
   roles?: RoleKey[]
+  /** CTA métier : replenish | receive | stock … */
+  action?: string
+  code?: string
 }
 
 export interface PlanningEvent {
@@ -850,6 +854,8 @@ export type ProposedActionType =
   | 'create_purchase'
   | 'receive_stock'
   | 'confirm_delivery'
+  /** Navigation métier (deep-link) — pas d’écriture. */
+  | 'open_screen'
 
 export interface ProposedActionField {
   key: string

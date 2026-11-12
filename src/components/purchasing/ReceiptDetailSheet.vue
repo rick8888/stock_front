@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { MessageCircle } from 'lucide-vue-next'
 import Sheet from '@/components/ui/Sheet.vue'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -9,6 +10,7 @@ import { RECEIPT_LABEL } from '@/services/receipt.overview'
 import type { ReceiptOverview } from '@/services/receipt.overview'
 import OfficialDocument from '@/components/documents/OfficialDocument.vue'
 import DocumentShareBar from '@/components/documents/DocumentShareBar.vue'
+import WhatsAppShareSheet from '@/components/documents/WhatsAppShareSheet.vue'
 import LinePickSheet, { type PickedLine } from '@/components/stock/LinePickSheet.vue'
 import { useIssuer } from '@/composables/useIssuer'
 import { locationRepository } from '@/repositories'
@@ -28,6 +30,7 @@ const expiryDate = ref<Record<string, string>>({})
 const locationId = ref<Record<string, string>>({})
 const locations = ref<WarehouseLocation[]>([])
 const pickOpen = ref(false)
+const chaseOpen = ref(false)
 
 watch(
   () => props.overview?.receipt.id,
@@ -93,6 +96,24 @@ const brMessage = computed(() => {
       `Fournisseur : ${item.supplierName}`,
       `Entrepôt : ${item.warehouseName}`,
       ...item.lines.map((line) => `• ${line.productName} : ${line.received}/${line.expected} ${line.unit}`),
+    ],
+  })
+})
+
+const canChase = computed(() => pending.value && Boolean(props.overview?.supplierPhone))
+
+const chaseMessage = computed(() => {
+  const item = props.overview
+  if (!item) return ''
+  return documentWhatsAppMessage({
+    title: 'Relance livraison',
+    code: item.orderCode,
+    issuer: issuer.value.name,
+    lines: [
+      `Bonjour ${item.supplierName},`,
+      `Nous relançons la commande ${item.orderCode} (BR ${item.code}), prévue le ${formatDate(item.expectedDate)}.`,
+      ...item.lines.map((line) => `• ${line.productName} × ${line.expected} ${line.unit}`),
+      `Merci de confirmer l’arrivée à ${item.warehouseName}.`,
     ],
   })
 })
@@ -199,11 +220,24 @@ function onPicked(lines: PickedLine[]) {
     </div>
     <template #footer>
       <div class="space-y-2">
+        <Button v-if="canChase" class="w-full" @click="chaseOpen = true">
+          <MessageCircle class="size-3.5" />
+          Relancer le fournisseur
+        </Button>
         <DocumentShareBar :filename="overview?.code ?? 'BR'" :message="brMessage" :contacts="brContacts" />
         <Button v-if="pending && canReceive" class="w-full" variant="outline" @click="pickOpen = true">
           Picking guidé + scan
         </Button>
-        <Button v-if="pending && canReceive" class="w-full" @click="submit">Valider la réception</Button>
+        <Button v-if="pending && canReceive" class="w-full" :variant="canChase ? 'outline' : 'default'" @click="submit">
+          Valider la réception
+        </Button>
+        <WhatsAppShareSheet
+          :open="chaseOpen"
+          :contacts="brContacts"
+          :message="chaseMessage"
+          :filename="overview?.orderCode ?? 'OA'"
+          @close="chaseOpen = false"
+        />
       </div>
     </template>
   </Sheet>

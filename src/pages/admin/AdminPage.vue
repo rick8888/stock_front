@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Pencil, Plus, Shield, Trash2 } from 'lucide-vue-next'
 import { useAdminUsers, useRoles } from '@/composables/useWork'
@@ -39,7 +39,10 @@ const { roles } = useRoles()
 const { allWarehouses, createWarehouse, updateWarehouse } = useWarehouses()
 const { products, createProduct, updateProduct } = useProducts()
 const { overview, inventories, pendingReceipts, warehouseName, toggleAssignment } = useStock()
-const { orderOverviews } = useProcurement()
+const { orderOverviews, loadBoard } = useProcurement({ autoload: false })
+onMounted(() => {
+  void loadBoard({ section: 'orders', filter: 'all', page: 1, pageSize: 50 }, false)
+})
 const { suppliers } = useSuppliers()
 const store = useDataStore()
 
@@ -253,7 +256,7 @@ function scopeLabel(user: User) {
   if (user.warehouseIds.length) return warehouseNames(user.warehouseIds)
   if (user.role === 'ADMIN') return 'Toute l’entreprise'
   if (user.role === 'TENANT_OWNER') return 'Propriétaire de l’entreprise'
-  if (user.role === 'SUPER_ADMIN') return 'Plateforme Bravo.Stock'
+  if (user.role === 'SUPER_ADMIN') return 'Plateforme BravoStock'
   return 'Tous les sites'
 }
 

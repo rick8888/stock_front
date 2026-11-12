@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { CircleAlert, MapPin, Package, Plus, Truck } from 'lucide-vue-next'
-import { useDeliveries, useRoutes, useVehicles, useDrivers, useShipments, useShippingNotes } from '@/composables/useLogistics'
+import {
+  useLogisticsBoard,
+  type DriverBoardRow,
+  type NoteBoardRow,
+  type VehicleBoardRow,
+} from '@/composables/useLogistics'
 import { useLiveTracking } from '@/composables/useLiveTracking'
 import { usePermissions } from '@/composables/usePermissions'
-import { useWarehouses } from '@/composables/useWarehouses'
-import { useProducts } from '@/composables/useProducts'
 import { useCurrentUser } from '@/composables/useAuth'
 import { useActionBusy } from '@/composables/useActionBusy'
-import { useDataStore } from '@/stores/data'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SignalCard from '@/components/common/SignalCard.vue'
 import PageSkeleton from '@/components/feedback/PageSkeleton.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
+import ErrorState from '@/components/feedback/ErrorState.vue'
 import Tabs from '@/components/ui/Tabs.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
@@ -33,50 +36,70 @@ import DocumentShareBar from '@/components/documents/DocumentShareBar.vue'
 import Sheet from '@/components/ui/Sheet.vue'
 import { formatDateTime, formatNumber, formatTime } from '@/lib/utils'
 import { useIssuer } from '@/composables/useIssuer'
-import { useCustomers } from '@/composables/useCustomers'
 import { documentWhatsAppMessage } from '@/utils/documents'
 import { downloadShippingNoteLabel } from '@/utils/labels'
 import { exportShippingNotesErpCsv } from '@/utils/erpExport'
-import { carrierTrackingUrl, listCarriers, refreshCarriers } from '@/services/carriers.service'
+import { carrierTrackingUrl, listCarriers } from '@/services/carriers.service'
 import { toast } from 'vue-sonner'
-import { DELIVERY_LABEL, DRIVER_LABEL, ROUTE_LABEL, SHIPMENT_LABEL, SHIPPING_NOTE_LABEL, VEHICLE_LABEL } from '@/config/logistics'
-import { deliveryOverview, routeOverview, shipmentOverview } from '@/services/logistics.overview'
+import { SHIPPING_NOTE_LABEL } from '@/config/logistics'
+import type { RouteOverview } from '@/services/logistics.overview'
 import type { DeliveryInput, DriverInput, RouteInput, ShipmentInput, ShippingNoteInput, VehicleInput } from '@/repositories/interfaces'
-import type { Delivery, DeliveryStatus, Driver, Route, Shipment, ShipmentStatus, ShippingNote, Vehicle } from '@/types'
+import type { DeliveryStatus, Driver, Route, ShipmentStatus, ShippingNote, Vehicle } from '@/types'
 
-const { can, inScopeWarehouse } = usePermissions()
+const { can } = usePermissions()
 const { currentUser } = useCurrentUser()
 const { run } = useActionBusy()
 const { issuer } = useIssuer()
 const route = useRoute()
-const store = useDataStore()
-const { products } = useProducts()
-const { warehouses, allWarehouses } = useWarehouses()
-const { deliveries, confirmDelivery, createDelivery, updateDelivery, loading, refresh: refreshDeliveries } = useDeliveries()
-const { routes, createRoute, updateRoute, refresh: refreshRoutes } = useRoutes()
-const { live: liveRoutes } = useLiveTracking(20_000)
-const { vehicles, createVehicle, updateVehicle } = useVehicles()
-const { drivers, createDriver, updateDriver } = useDrivers()
-const { shipments, createShipment, updateShipment } = useShipments()
 const {
+  focused,
+  metrics,
+  counts,
+  page,
+  pages,
+  total,
+  noteRows,
+  deliveryRows,
+  routeRows,
+  shipmentRows,
+  vehicleRows,
+  driverRows,
+  products,
+  warehouses,
+  customers,
+  vehicles,
+  drivers,
+  carriers,
+  routes,
   shippingNotes,
+  deliveries,
+  loadBoard,
+  createDelivery,
+  updateDelivery,
+  confirmDelivery,
+  createRoute,
+  updateRoute,
+  createShipment,
+  updateShipment,
+  createVehicle,
+  updateVehicle,
+  createDriver,
+  updateDriver,
   createShippingNote,
   updateShippingNote,
   assignCarrier,
   markLabelPrinted,
   startPicking,
   loadShippingNote,
-  refresh: refreshNotes,
-} = useShippingNotes()
-const { customers } = useCustomers()
+  loading,
+  error,
+} = useLogisticsBoard({ autoload: false })
+const { live: liveRoutes } = useLiveTracking(20_000)
+
 const noteLoadError = ref('')
 const loadPickOpen = ref(false)
 const loadPickLines = ref<PickLine[]>([])
 const carrierDraftId = ref('car-fleet')
-const carriers = ref(listCarriers())
-void refreshCarriers().then((items) => {
-  carriers.value = items
-})
 const canCreate = computed(() => can('delivery.create'))
 const canManage = computed(() => can('delivery.create') || can('delivery.update'))
 const canPrepare = computed(() => can('stock.issue') || can('delivery.create') || can('delivery.update'))
@@ -96,17 +119,19 @@ const tabs = computed(() => [
   { id: 'fleet', label: 'Flotte' },
 ])
 
-const deliveryFilter = ref<'all' | DeliveryStatus>('all')
+const deliveryFilter = ref<'all' | DeliveryStatus | 'at_risk'>('all')
 const shipmentFilter = ref<'all' | ShipmentStatus>('all')
+const noteFilter = ref<'all' | ShippingNote['status']>('ready')
+const listPage = ref(1)
 const selectedDeliveryId = ref<string | null>(null)
 const selectedShipmentId = ref<string | null>(null)
 const selectedRouteId = ref<string | null>(null)
 const deliveryFormOpen = ref(false)
 const routeFormOpen = ref(false)
 const shipmentFormOpen = ref(false)
-const editingDelivery = ref<Delivery | null>(null)
+const editingDelivery = ref<import('@/types').Delivery | null>(null)
 const editingRoute = ref<Route | null>(null)
-const editingShipment = ref<Shipment | null>(null)
+const editingShipment = ref<import('@/types').Shipment | null>(null)
 const vehicleFormOpen = ref(false)
 const driverFormOpen = ref(false)
 const editingVehicle = ref<Vehicle | null>(null)
@@ -116,7 +141,6 @@ const noteFormOpen = ref(false)
 const noteDetailOpen = ref(false)
 const editingNote = ref<ShippingNote | null>(null)
 const selectedNoteId = ref<string | null>(null)
-const noteFilter = ref<'all' | ShippingNote['status']>('ready')
 
 watch(
   () => route.query.tab,
@@ -128,7 +152,7 @@ watch(
 const driverOptions = computed(() =>
   drivers.value.map((driver) => ({
     id: driver.id,
-    name: driverName(driver.id),
+    name: driver.name ?? driver.id,
   })),
 )
 
@@ -145,83 +169,159 @@ const showCreate = computed(() => {
   return canCreate.value
 })
 
-/** Fusionne le dernier ping live dans les tournées pour que la carte suive le GPS. */
-const trackedRoutes = computed(() => {
-  const byId = new Map(liveRoutes.value.map((item) => [item.routeId, item]))
-  return routes.value.map((route) => {
-    const live = byId.get(route.id)
-    if (!live?.lastPosition) return route
-    return {
-      ...route,
-      progress: live.progress ?? route.progress,
-      currentPosition: live.lastPosition,
-      eta: live.eta ?? route.eta,
-      status: (live.status as Route['status']) || route.status,
-    }
-  })
-})
+function sectionOfTab(value: string): 'notes' | 'deliveries' | 'routes' | 'shipments' | 'fleet' | null {
+  if (value === 'notes') return 'notes'
+  if (value === 'deliveries') return 'deliveries'
+  if (value === 'routes') return 'routes'
+  if (value === 'shipments') return 'shipments'
+  if (value === 'fleet') return 'fleet'
+  return null
+}
 
-const ctx = computed(() => ({
-  warehouses: store.db.warehouses,
-  drivers: drivers.value,
-  users: store.db.users,
-  vehicles: vehicles.value,
-  routes: trackedRoutes.value,
-  deliveries: deliveries.value,
-}))
+function activeFilter() {
+  if (tab.value === 'notes') return noteFilter.value
+  if (tab.value === 'shipments') return shipmentFilter.value
+  if (tab.value === 'deliveries') return deliveryFilter.value
+  return 'all'
+}
 
-const counts = computed(() => ({
-  risk: deliveries.value.filter((item) => item.status === 'at_risk' || item.status === 'failed').length,
-  moving: deliveries.value.filter((item) => item.status === 'in_transit').length,
-  delivered: deliveries.value.filter((item) => item.status === 'delivered').length,
-  routes: trackedRoutes.value.filter((item) => item.status === 'in_progress').length,
-  readyNotes: scopedNotes.value.filter((item) =>
-    item.status === 'ready' || item.status === 'picking' || item.status === 'loaded',
-  ).length,
-}))
+function reloadBoard(silent = true) {
+  const section = sectionOfTab(tab.value)
+  if (!section) return
+  void loadBoard(
+    {
+      section,
+      filter: activeFilter(),
+      page: listPage.value,
+      pageSize: 8,
+      focusId:
+        typeof route.query.delivery === 'string'
+          ? route.query.delivery
+          : typeof route.query.note === 'string'
+            ? route.query.note
+            : typeof route.query.route === 'string'
+              ? route.query.route
+              : typeof route.query.shipment === 'string'
+                ? route.query.shipment
+                : undefined,
+    },
+    silent,
+  )
+}
 
-watch(liveRoutes, () => {
-  void refreshRoutes()
-  void refreshDeliveries()
-})
-
-const scopedNotes = computed(() =>
-  shippingNotes.value.filter((item) => inScopeWarehouse(item.warehouseId)),
+watch(
+  [tab, noteFilter, deliveryFilter, shipmentFilter, listPage],
+  ([nextTab], [prevTab]) => {
+    if (nextTab !== prevTab) listPage.value = 1
+    reloadBoard(true)
+  },
 )
 
-const noteChips = computed(() => [
-  { id: 'ready' as const, label: 'Prêts', count: scopedNotes.value.filter((item) => item.status === 'ready').length },
-  { id: 'picking' as const, label: 'Préparation', count: scopedNotes.value.filter((item) => item.status === 'picking').length },
-  { id: 'loaded' as const, label: 'Chargés', count: scopedNotes.value.filter((item) => item.status === 'loaded').length },
-  { id: 'assigned' as const, label: 'Affectés', count: scopedNotes.value.filter((item) => item.status === 'assigned').length },
-  { id: 'delivered' as const, label: 'Livrés', count: scopedNotes.value.filter((item) => item.status === 'delivered').length },
-  { id: 'all' as const, label: 'Tous', count: scopedNotes.value.length },
-])
-
-const visibleNotes = computed(() => {
-  const list = [...scopedNotes.value].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '') || a.code.localeCompare(b.code))
-  if (noteFilter.value === 'all') return list
-  return list.filter((item) => item.status === noteFilter.value)
+watch(page, (value) => {
+  if (value && value !== listPage.value) listPage.value = value
 })
 
-const selectedNote = computed(() => scopedNotes.value.find((item) => item.id === selectedNoteId.value) ?? null)
+watch(liveRoutes, () => {
+  reloadBoard(true)
+})
+
+onMounted(() => reloadBoard(false))
+
+const noteChips = computed(() => [
+  { id: 'ready' as const, label: 'Prêts', count: counts.value.ready ?? 0 },
+  { id: 'picking' as const, label: 'Préparation', count: counts.value.picking ?? 0 },
+  { id: 'loaded' as const, label: 'Chargés', count: counts.value.loaded ?? 0 },
+  { id: 'assigned' as const, label: 'Affectés', count: counts.value.assigned ?? 0 },
+  { id: 'delivered' as const, label: 'Livrés', count: counts.value.delivered ?? 0 },
+  { id: 'all' as const, label: 'Tous', count: counts.value.all ?? 0 },
+])
+
+const deliveryChips = computed(() => [
+  { id: 'all' as const, label: 'Toutes', count: counts.value.all ?? 0 },
+  { id: 'at_risk' as const, label: 'À risque', count: counts.value.at_risk ?? 0 },
+  { id: 'in_transit' as const, label: 'En tournée', count: counts.value.in_transit ?? 0 },
+  { id: 'prepared' as const, label: 'Préparées', count: counts.value.prepared ?? 0 },
+  { id: 'delivered' as const, label: 'Livrées', count: counts.value.delivered ?? 0 },
+])
+
+const shipmentChips = computed(() => [
+  { id: 'all' as const, label: 'Toutes', count: counts.value.all ?? 0 },
+  { id: 'in_transit' as const, label: 'En transit', count: counts.value.in_transit ?? 0 },
+  { id: 'delayed' as const, label: 'Retard', count: counts.value.delayed ?? 0 },
+  { id: 'preparing' as const, label: 'Préparation', count: counts.value.preparing ?? 0 },
+])
+
+const selectedNoteRow = computed((): NoteBoardRow | null => {
+  const fromPage = noteRows.value.find((item) => item.note.id === selectedNoteId.value)
+  if (fromPage) return fromPage
+  const fromFocus = focused.value as NoteBoardRow | null
+  if (fromFocus?.note?.id === selectedNoteId.value) return fromFocus
+  const note = shippingNotes.value.find((item) => item.id === selectedNoteId.value)
+  if (!note) return null
+  return {
+    note,
+    code: note.code,
+    statusLabel: SHIPPING_NOTE_LABEL[note.status],
+    warehouseName: warehouses.value.find((item) => item.id === note.warehouseId)?.name ?? note.warehouseId,
+    warehouseAddress: warehouses.value.find((item) => item.id === note.warehouseId)?.address ?? '',
+    driverName: '',
+    driverPhone: '',
+    vehicleLabel: '',
+    date: note.createdAt ?? note.loadedAt ?? '',
+    linesCount: note.lines?.length ?? 0,
+  }
+})
+
+const selectedNote = computed(() => selectedNoteRow.value?.note ?? null)
+
+const selectedDelivery = computed(() => {
+  const fromPage = deliveryRows.value.find((item) => item.delivery.id === selectedDeliveryId.value)
+  if (fromPage) return fromPage
+  const fromFocus = focused.value as import('@/services/logistics.overview').DeliveryOverview | null
+  return fromFocus?.delivery?.id === selectedDeliveryId.value ? fromFocus : null
+})
+
+const selectedShipment = computed(() => {
+  const fromPage = shipmentRows.value.find((item) => item.shipment.id === selectedShipmentId.value)
+  if (fromPage) return fromPage
+  const fromFocus = focused.value as import('@/services/logistics.overview').ShipmentOverview | null
+  return fromFocus?.shipment?.id === selectedShipmentId.value ? fromFocus : null
+})
+
+const selectedRoute = computed((): RouteOverview | null => {
+  const fromPage = routeRows.value.find((item) => item.route.id === selectedRouteId.value)
+  const fromFocus = focused.value as RouteOverview | null
+  const row =
+    fromPage ?? (fromFocus?.route?.id === selectedRouteId.value ? fromFocus : null)
+  if (!row) return null
+  const live = liveRoutes.value.find((item) => item.routeId === row.route.id)
+  if (!live?.lastPosition) return row
+  return {
+    ...row,
+    progress: live.progress ?? row.progress,
+    vehicle: live.lastPosition,
+    route: {
+      ...row.route,
+      progress: live.progress ?? row.route.progress,
+      currentPosition: live.lastPosition,
+      eta: live.eta ?? row.route.eta,
+      status: (live.status as Route['status']) || row.route.status,
+    },
+  }
+})
 
 const noteLinked = computed(() => {
-  const note = selectedNote.value
-  if (!note) return { driverName: '', driverPhone: '', vehicleLabel: '', warehouseName: '', warehouseAddress: '', date: '' }
-  const delivery = note.deliveryId ? deliveries.value.find((item) => item.id === note.deliveryId) : undefined
-  const shipment = note.shipmentId ? shipments.value.find((item) => item.id === note.shipmentId) : undefined
-  const driverId = delivery?.driverId ?? shipment?.driverId
-  const vehicleId = delivery?.vehicleId ?? shipment?.vehicleId
-  const driver = driverId ? drivers.value.find((item) => item.id === driverId) : undefined
-  const warehouse = store.db.warehouses.find((item) => item.id === note.warehouseId)
+  const row = selectedNoteRow.value
+  if (!row) {
+    return { driverName: '', driverPhone: '', vehicleLabel: '', warehouseName: '', warehouseAddress: '', date: '' }
+  }
   return {
-    driverName: driverId ? driverName(driverId) : '',
-    driverPhone: driver?.phone ?? '',
-    vehicleLabel: vehicleId ? vehicleLabel(vehicleId) : '',
-    warehouseName: warehouse?.name ?? warehouseName(note.warehouseId),
-    warehouseAddress: warehouse?.address ?? '',
-    date: note.createdAt ?? note.loadedAt ?? delivery?.scheduledAt ?? shipment?.date ?? '',
+    driverName: row.driverName,
+    driverPhone: row.driverPhone,
+    vehicleLabel: row.vehicleLabel,
+    warehouseName: row.warehouseName,
+    warehouseAddress: row.warehouseAddress,
+    date: row.date,
   }
 })
 
@@ -256,64 +356,28 @@ const noteMessage = computed(() => {
   })
 })
 
-const deliveryChips = computed(() => [
-  { id: 'all' as const, label: 'Toutes', count: deliveries.value.length },
-  { id: 'at_risk' as const, label: 'À risque', count: counts.value.risk },
-  { id: 'in_transit' as const, label: 'En tournée', count: counts.value.moving },
-  { id: 'prepared' as const, label: 'Préparées', count: deliveries.value.filter((item) => item.status === 'prepared').length },
-  { id: 'delivered' as const, label: 'Livrées', count: counts.value.delivered },
-])
+watch(
+  () => [route.query.delivery, deliveryRows.value] as const,
+  () => {
+    const id = route.query.delivery
+    if (typeof id === 'string' && id) selectedDeliveryId.value = id
+  },
+)
 
-const visibleDeliveries = computed(() => {
-  const list = [...deliveries.value].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt))
-  if (deliveryFilter.value === 'all') return list
-  if (deliveryFilter.value === 'at_risk') {
-    return list.filter((item) => item.status === 'at_risk' || item.status === 'failed')
-  }
-  return list.filter((item) => item.status === deliveryFilter.value)
-})
+watch(
+  () => [route.query.note, noteRows.value] as const,
+  () => {
+    const id = route.query.note
+    if (typeof id === 'string' && id) openNote(id)
+  },
+)
 
-const shipmentChips = computed(() => [
-  { id: 'all' as const, label: 'Toutes', count: shipments.value.length },
-  { id: 'in_transit' as const, label: 'En transit', count: shipments.value.filter((item) => item.status === 'in_transit').length },
-  { id: 'delayed' as const, label: 'Retard', count: shipments.value.filter((item) => item.status === 'delayed').length },
-  { id: 'preparing' as const, label: 'Préparation', count: shipments.value.filter((item) => item.status === 'preparing').length },
-])
-
-const visibleShipments = computed(() => {
-  if (shipmentFilter.value === 'all') return shipments.value
-  return shipments.value.filter((item) => item.status === shipmentFilter.value)
-})
-
-const selectedDelivery = computed(() => {
-  const item = deliveries.value.find((row) => row.id === selectedDeliveryId.value)
-  return item ? deliveryOverview(item, ctx.value) : null
-})
-
-const selectedShipment = computed(() => {
-  const item = shipments.value.find((row) => row.id === selectedShipmentId.value)
-  return item ? shipmentOverview(item, ctx.value) : null
-})
-
-const selectedRoute = computed(() => {
-  const item = trackedRoutes.value.find((row) => row.id === selectedRouteId.value)
-  return item ? routeOverview(item, ctx.value) : null
-})
-
-function driverName(id: string) {
-  const driver = drivers.value.find((item) => item.id === id)
-  const user = store.db.users.find((item) => item.id === driver?.userId)
-  return user ? `${user.firstName} ${user.lastName}` : id
-}
-
-function vehicleLabel(id: string) {
-  const vehicle = vehicles.value.find((item) => item.id === id)
-  return vehicle ? `${vehicle.name} · ${vehicle.plate}` : id
-}
-
-function warehouseName(id: string) {
-  return store.db.warehouses.find((item) => item.id === id)?.name ?? id
-}
+watch(
+  () => selectedNote.value?.id,
+  () => {
+    carrierDraftId.value = selectedNote.value?.carrierId ?? 'car-fleet'
+  },
+)
 
 function deliveryTone(status: DeliveryStatus) {
   if (status === 'delivered') return 'border-l-emerald-500'
@@ -371,22 +435,6 @@ function openNote(id: string) {
   noteDetailOpen.value = true
 }
 
-watch(
-  () => [route.query.delivery, deliveries.value] as const,
-  () => {
-    const id = route.query.delivery
-    if (typeof id === 'string' && id) selectedDeliveryId.value = id
-  },
-)
-
-watch(
-  () => [route.query.note, shippingNotes.value] as const,
-  () => {
-    const id = route.query.note
-    if (typeof id === 'string' && id) openNote(id)
-  },
-)
-
 function openEditNote() {
   if (!selectedNote.value || selectedNote.value.status !== 'ready' || !canPrepare.value) return
   editingNote.value = selectedNote.value
@@ -410,7 +458,7 @@ async function openLoadPick() {
     try {
       await startPicking(note.id)
     } catch {
-      // On continue le picking même si le statut n'a pas bougé.
+      // continue
     }
   }
   try {
@@ -447,6 +495,7 @@ async function openLoadPick() {
       loadPickLines.value = note.lines.map((line) => {
         const product = products.value.find((item) => item.id === line.productId)
         return {
+          key: line.productId,
           productId: line.productId,
           productName: line.productName,
           sku: line.sku ?? product?.sku,
@@ -474,22 +523,23 @@ function openNewDriver() {
   driverFormOpen.value = true
 }
 
-function openEditDriverRow(driver: Driver) {
-  editingDriver.value = driver
+function openEditDriverRow(row: DriverBoardRow) {
+  editingDriver.value = row.driver
   driverFormOpen.value = true
 }
 
-function openEditVehicle(vehicle: Vehicle) {
-  editingVehicle.value = vehicle
+function openEditVehicle(row: VehicleBoardRow) {
+  editingVehicle.value = row.vehicle
   vehicleFormOpen.value = true
 }
 
 async function printNoteLabel() {
   const note = selectedNote.value
-  if (!note) return
+  const row = selectedNoteRow.value
+  if (!note || !row) return
   downloadShippingNoteLabel({
     note,
-    warehouseName: warehouseName(note.warehouseId),
+    warehouseName: row.warehouseName,
     issuerName: issuer.value.name,
   })
   await run(async () => {
@@ -539,43 +589,24 @@ async function bookCarrierForNote() {
 function openCarrierTracking() {
   const note = selectedNote.value
   if (!note?.trackingNumber) return
-  const carrier = carriers.value.find((item) => item.id === note.carrierId) ?? listCarriers(false).find((item) => item.id === note.carrierId)
+  const carrier =
+    carriers.value.find((item) => item.id === note.carrierId) ??
+    listCarriers(false).find((item) => item.id === note.carrierId)
   const url = carrierTrackingUrl(carrier, note.trackingNumber)
   if (url) window.open(url, '_blank', 'noopener')
   else toast.message('Pas d’URL de suivi pour ce transporteur')
 }
 
 function exportNotesErp() {
-  exportShippingNotesErpCsv(shippingNotes.value, warehouseName)
-  toast.success('Export ERP généré', { description: 'CSV compatible Excel / import Odoo stub.' })
-}
-
-watch(
-  () => selectedNote.value?.id,
-  () => {
-    carrierDraftId.value = selectedNote.value?.carrierId ?? 'car-fleet'
-  },
-)
-function assignedDriver(vehicleId: string) {
-  return drivers.value.find((item) => item.vehicleId === vehicleId)
-}
-
-function assignedDriverName(vehicleId: string) {
-  const driver = assignedDriver(vehicleId)
-  return driver ? driverName(driver.id) : 'Aucun chauffeur affecté'
-}
-
-function assignedVehicle(driver: Driver) {
-  return driver.vehicleId ? vehicles.value.find((item) => item.id === driver.vehicleId) : undefined
-}
-
-function assignedVehicleLabel(driver: Driver) {
-  const vehicle = assignedVehicle(driver)
-  return vehicle ? `${vehicle.name} · ${vehicle.plate}` : 'Aucun véhicule affecté'
-}
-
-function driverUser(driver: Driver) {
-  return store.db.users.find((item) => item.id === driver.userId) ?? null
+  const notes = noteRows.value.map((item) => item.note)
+  exportShippingNotesErpCsv(notes, (warehouseId) => {
+    return (
+      noteRows.value.find((item) => item.note.warehouseId === warehouseId)?.warehouseName ??
+      warehouses.value.find((item) => item.id === warehouseId)?.name ??
+      warehouseId
+    )
+  })
+  toast.success('Export ERP généré', { description: 'CSV de la page courante.' })
 }
 
 async function saveVehicle(payload: { id?: string; input: VehicleInput }) {
@@ -613,7 +644,7 @@ function openNewShipment() {
 }
 
 function openEditDelivery() {
-  const item = deliveries.value.find((row) => row.id === selectedDeliveryId.value)
+  const item = selectedDelivery.value?.delivery
   if (!item) return
   editingDelivery.value = item
   initialRouteId.value = item.routeId
@@ -621,14 +652,14 @@ function openEditDelivery() {
 }
 
 function openEditRoute() {
-  const item = routes.value.find((row) => row.id === selectedRouteId.value)
+  const item = selectedRoute.value?.route
   if (!item) return
   editingRoute.value = item
   routeFormOpen.value = true
 }
 
 function openEditShipment() {
-  const item = shipments.value.find((row) => row.id === selectedShipmentId.value)
+  const item = selectedShipment.value?.shipment
   if (!item) return
   editingShipment.value = item
   shipmentFormOpen.value = true
@@ -654,7 +685,6 @@ async function saveRoute(payload: { id?: string; input: RouteInput }) {
       selectedRouteId.value = created.id
       tab.value = 'routes'
     }
-    await Promise.all([refreshDeliveries(), refreshRoutes(), refreshNotes()])
     routeFormOpen.value = false
     editingRoute.value = null
   })
@@ -680,10 +710,20 @@ async function confirmSelected() {
   })
 }
 
-function stopCount(routeId: string) {
-  const stops = deliveries.value.filter((item) => item.routeId === routeId)
-  const done = stops.filter((item) => item.status === 'delivered').length
-  return { done, total: stops.length }
+function driverUser(driver: Driver) {
+  return {
+    id: driver.userId,
+    firstName: drivers.value.find((item) => item.id === driver.id)?.name?.split(' ')[0] ?? '',
+    lastName: drivers.value.find((item) => item.id === driver.id)?.name?.split(' ').slice(1).join(' ') ?? '',
+    email: '',
+    password: '',
+    role: 'DRIVER' as const,
+    title: 'Chauffeur',
+    avatarHue: 0,
+    warehouseIds: warehouses.value[0] ? [warehouses.value[0].id] : [],
+    productIds: [],
+    regionIds: [],
+  }
 }
 </script>
 
@@ -711,12 +751,12 @@ function stopCount(routeId: string) {
     </PageHeader>
 
     <div class="metric-strip mb-5 sm:grid-cols-2 xl:grid-cols-4">
-      <SignalCard label="Bons prêts" :value="counts.readyNotes" trend="À affecter à une tournée" :icon="Package" />
-      <SignalCard label="À risque" :value="counts.risk" trend="Créneaux sous tension" :icon="CircleAlert" tone="warning" />
-      <SignalCard label="En tournée" :value="counts.moving" trend="Véhicules en mouvement" :icon="Truck" />
+      <SignalCard label="Bons prêts" :value="metrics.readyNotes" trend="À affecter à une tournée" :icon="Package" />
+      <SignalCard label="À risque" :value="metrics.risk" trend="Créneaux sous tension" :icon="CircleAlert" tone="warning" />
+      <SignalCard label="En tournée" :value="metrics.moving" trend="Véhicules en mouvement" :icon="Truck" />
       <SignalCard
         label="Tournées actives"
-        :value="counts.routes"
+        :value="metrics.routes"
         :trend="liveRoutes.length ? `${liveRoutes.length} position(s) live` : 'En cours de tournée'"
         :icon="MapPin"
       />
@@ -724,6 +764,7 @@ function stopCount(routeId: string) {
 
     <Tabs v-model="tab" :tabs="tabs" class="mb-6" />
     <PageSkeleton v-if="loading" />
+    <ErrorState v-else-if="error" :message="error" />
 
     <div v-else-if="tab === 'notes'" class="space-y-4">
       <div class="flex flex-wrap gap-2">
@@ -732,55 +773,60 @@ function stopCount(routeId: string) {
           :key="chip.id"
           class="chip"
           :class="noteFilter === chip.id ? 'chip-active' : ''"
-          @click="noteFilter = chip.id"
+          @click="noteFilter = chip.id; listPage = 1"
         >
           {{ chip.label }}
           <span class="ml-1 tabular-nums">{{ chip.count }}</span>
         </button>
       </div>
       <EmptyState
-        v-if="!visibleNotes.length"
+        v-if="!noteRows.length"
         title="Aucun bon dans ce filtre"
         :description="canPrepare ? 'Préparez un bon pour notifier le logisticien.' : 'Les bons préparés en magasin apparaîtront ici.'"
       />
       <button
-        v-for="item in visibleNotes"
-        :key="item.id"
+        v-for="item in noteRows"
+        :key="item.note.id"
         class="surface flex w-full items-start justify-between gap-3 border-l-4 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
         :class="
-          item.status === 'ready' || item.status === 'picking'
+          item.note.status === 'ready' || item.note.status === 'picking'
             ? 'border-l-primary'
-            : item.status === 'delivered'
+            : item.note.status === 'delivered'
               ? 'border-l-emerald-500'
-              : item.status === 'loaded'
+              : item.note.status === 'loaded'
                 ? 'border-l-amber-500'
                 : 'border-l-blue-500'
         "
-        @click="openNote(item.id)"
+        @click="openNote(item.note.id)"
       >
         <div class="min-w-0">
-          <p class="font-medium">{{ item.code }} · {{ item.client }}</p>
+          <p class="font-medium">{{ item.code }} · {{ item.note.client }}</p>
           <p class="mt-0.5 text-sm text-muted-foreground">
-            {{ item.city }} · {{ warehouseName(item.warehouseId) }} · {{ item.lines.length }} article{{ item.lines.length > 1 ? 's' : '' }}
-            <span v-if="item.loadedAt"> · chargé</span>
+            {{ item.note.city }} · {{ item.warehouseName }} · {{ item.linesCount }} article{{ item.linesCount > 1 ? 's' : '' }}
+            <span v-if="item.note.loadedAt"> · chargé</span>
           </p>
         </div>
         <Badge
           :variant="
-            item.status === 'ready' || item.status === 'picking'
+            item.note.status === 'ready' || item.note.status === 'picking'
               ? 'info'
-              : item.status === 'delivered'
+              : item.note.status === 'delivered'
                 ? 'success'
                 : 'onorder'
           "
         >
-          {{ SHIPPING_NOTE_LABEL[item.status] }}
+          {{ item.statusLabel }}
         </Badge>
       </button>
-      <div class="flex justify-end">
-        <Button size="sm" variant="outline" :disabled="!shippingNotes.length" @click="exportNotesErp">
+      <div class="flex items-center justify-between gap-2">
+        <Button size="sm" variant="outline" :disabled="!noteRows.length" @click="exportNotesErp">
           Export ERP (CSV)
         </Button>
+        <div v-if="pages > 1" class="flex items-center gap-1.5 text-[13px]">
+          <Button size="sm" variant="outline" :disabled="listPage <= 1" @click="listPage -= 1">Précédent</Button>
+          <span class="px-2 py-1 tabular-nums text-muted-foreground">{{ page }}/{{ pages }}</span>
+          <Button size="sm" variant="outline" :disabled="listPage >= pages" @click="listPage += 1">Suivant</Button>
+        </div>
       </div>
     </div>
 
@@ -791,56 +837,68 @@ function stopCount(routeId: string) {
           :key="chip.id"
           class="chip"
           :class="deliveryFilter === chip.id ? 'chip-active' : 'text-muted-foreground'"
-          @click="deliveryFilter = chip.id"
+          @click="deliveryFilter = chip.id; listPage = 1"
         >
           {{ chip.label }}
           <span class="ml-1 tabular-nums">{{ chip.count }}</span>
         </button>
       </div>
-      <EmptyState v-if="!visibleDeliveries.length" title="Aucune livraison" description="Rien dans ce filtre." />
+      <EmptyState v-if="!deliveryRows.length" title="Aucune livraison" description="Rien dans ce filtre." />
       <button
-        v-for="item in visibleDeliveries"
-        :key="item.id"
+        v-for="item in deliveryRows"
+        :key="item.delivery.id"
         class="surface flex w-full items-start justify-between gap-3 border-l-4 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-        :class="deliveryTone(item.status)"
-        @click="openDelivery(item.id)"
+        :class="deliveryTone(item.delivery.status)"
+        @click="openDelivery(item.delivery.id)"
       >
         <div class="min-w-0">
-          <p class="font-medium">{{ item.client }}</p>
+          <p class="font-medium">{{ item.delivery.client }}</p>
           <p class="mt-0.5 text-sm text-muted-foreground">
-            {{ item.city }} · {{ formatTime(item.scheduledAt) }} · {{ driverName(item.driverId) }}
+            {{ item.delivery.city }} · {{ formatTime(item.delivery.scheduledAt) }} · {{ item.driverName }}
           </p>
         </div>
-        <Badge :variant="deliveryBadge(item.status)">{{ DELIVERY_LABEL[item.status] }}</Badge>
+        <Badge :variant="deliveryBadge(item.delivery.status)">{{ item.statusLabel }}</Badge>
       </button>
+      <div v-if="pages > 1" class="flex items-center justify-end gap-1.5 text-[13px]">
+        <p class="mr-2 text-muted-foreground">{{ total }} livraisons</p>
+        <Button size="sm" variant="outline" :disabled="listPage <= 1" @click="listPage -= 1">Précédent</Button>
+        <span class="px-2 py-1 tabular-nums text-muted-foreground">{{ page }}/{{ pages }}</span>
+        <Button size="sm" variant="outline" :disabled="listPage >= pages" @click="listPage += 1">Suivant</Button>
+      </div>
     </div>
 
     <div v-else-if="tab === 'routes'" class="space-y-2">
+      <EmptyState v-if="!routeRows.length" title="Aucune tournée" description="Créez une tournée pour planifier les arrêts." />
       <button
-        v-for="route in routes"
-        :key="route.id"
+        v-for="item in routeRows"
+        :key="item.route.id"
         class="surface flex w-full flex-col gap-2 border-l-4 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-        :class="routeTone(route.status)"
-        @click="selectedRouteId = route.id"
+        :class="routeTone(item.route.status)"
+        @click="selectedRouteId = item.route.id"
       >
         <div class="flex items-start justify-between gap-3">
           <div>
-            <p class="font-medium">{{ route.name }}</p>
+            <p class="font-medium">{{ item.route.name }}</p>
             <p class="mt-0.5 text-sm text-muted-foreground">
-              {{ driverName(route.driverId) }} · {{ vehicleLabel(route.vehicleId) }} · {{ route.distanceKm }} km
+              {{ item.driverName }} · {{ item.vehicleLabel }} · {{ item.route.distanceKm }} km
             </p>
           </div>
-          <Badge :variant="route.status === 'in_progress' ? 'onorder' : route.status === 'done' ? 'success' : 'info'">
-            {{ ROUTE_LABEL[route.status] }}
+          <Badge :variant="item.route.status === 'in_progress' ? 'onorder' : item.route.status === 'done' ? 'success' : 'info'">
+            {{ item.statusLabel }}
           </Badge>
         </div>
         <div class="h-1.5 overflow-hidden rounded-full bg-muted">
-          <div class="h-full rounded-full bg-primary" :style="{ width: `${route.progress}%` }" />
+          <div class="h-full rounded-full bg-primary" :style="{ width: `${item.progress}%` }" />
         </div>
         <p class="text-xs text-muted-foreground">
-          {{ stopCount(route.id).done }} / {{ stopCount(route.id).total }} arrêts · {{ route.progress }} %
+          {{ item.doneCount }} / {{ item.doneCount + item.remainingCount }} arrêts · {{ item.progress }} %
         </p>
       </button>
+      <div v-if="pages > 1" class="flex items-center justify-end gap-1.5 text-[13px]">
+        <Button size="sm" variant="outline" :disabled="listPage <= 1" @click="listPage -= 1">Précédent</Button>
+        <span class="px-2 py-1 tabular-nums text-muted-foreground">{{ page }}/{{ pages }}</span>
+        <Button size="sm" variant="outline" :disabled="listPage >= pages" @click="listPage += 1">Suivant</Button>
+      </div>
     </div>
 
     <div v-else-if="tab === 'shipments'" class="space-y-4">
@@ -850,66 +908,72 @@ function stopCount(routeId: string) {
           :key="chip.id"
           class="chip"
           :class="shipmentFilter === chip.id ? 'chip-active' : 'text-muted-foreground'"
-          @click="shipmentFilter = chip.id"
+          @click="shipmentFilter = chip.id; listPage = 1"
         >
           {{ chip.label }}
           <span class="ml-1 tabular-nums">{{ chip.count }}</span>
         </button>
       </div>
-      <EmptyState v-if="!visibleShipments.length" title="Aucune expédition" description="Rien dans ce filtre." />
+      <EmptyState v-if="!shipmentRows.length" title="Aucune expédition" description="Rien dans ce filtre." />
       <button
-        v-for="shipment in visibleShipments"
-        :key="shipment.id"
+        v-for="item in shipmentRows"
+        :key="item.shipment.id"
         class="surface flex w-full items-start justify-between gap-3 border-l-4 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-        :class="shipmentTone(shipment.status)"
-        @click="selectedShipmentId = shipment.id"
+        :class="shipmentTone(item.shipment.status)"
+        @click="selectedShipmentId = item.shipment.id"
       >
         <div class="min-w-0">
-          <p class="font-medium">{{ shipment.destination }}</p>
+          <p class="font-medium">{{ item.shipment.destination }}</p>
           <p class="mt-0.5 text-sm text-muted-foreground">
-            {{ warehouseName(shipment.originWarehouseId) }} · {{ driverName(shipment.driverId) }} ·
-            {{ formatDateTime(shipment.date) }}
+            {{ item.originName }} · {{ item.driverName }} · {{ formatDateTime(item.shipment.date) }}
           </p>
         </div>
         <div class="shrink-0 text-right">
-          <Badge :variant="shipmentBadge(shipment.status)">{{ SHIPMENT_LABEL[shipment.status] }}</Badge>
-          <p class="mt-1 text-xs tabular-nums text-muted-foreground">{{ shipment.progress }} %</p>
+          <Badge :variant="shipmentBadge(item.shipment.status)">{{ item.statusLabel }}</Badge>
+          <p class="mt-1 text-xs tabular-nums text-muted-foreground">{{ item.progress }} %</p>
         </div>
       </button>
+      <div v-if="pages > 1" class="flex items-center justify-end gap-1.5 text-[13px]">
+        <Button size="sm" variant="outline" :disabled="listPage <= 1" @click="listPage -= 1">Précédent</Button>
+        <span class="px-2 py-1 tabular-nums text-muted-foreground">{{ page }}/{{ pages }}</span>
+        <Button size="sm" variant="outline" :disabled="listPage >= pages" @click="listPage += 1">Suivant</Button>
+      </div>
     </div>
 
     <div v-else class="grid gap-6 lg:grid-cols-2">
       <section class="space-y-2">
         <h2 class="text-sm font-semibold">Véhicules</h2>
+        <EmptyState v-if="!vehicleRows.length" title="Aucun véhicule" />
         <button
-          v-for="vehicle in vehicles"
-          :key="vehicle.id"
+          v-for="row in vehicleRows"
+          :key="row.vehicle.id"
           class="surface flex w-full flex-col items-start border-l-4 border-l-primary/40 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-          @click="canManage && openEditVehicle(vehicle)"
+          @click="canManage && openEditVehicle(row)"
         >
-          <p class="font-medium">{{ vehicle.name }}</p>
+          <p class="font-medium">{{ row.vehicle.name }}</p>
           <p class="mt-0.5 text-sm text-muted-foreground">
-            {{ vehicle.plate }} · {{ warehouseName(vehicle.warehouseId) }}
+            {{ row.vehicle.plate }} · {{ row.warehouseName }}
           </p>
-          <p class="mt-1 text-xs text-muted-foreground">{{ assignedDriverName(vehicle.id) }}</p>
-          <Badge class="mt-2" :variant="vehicle.status === 'on_mission' ? 'onorder' : vehicle.status === 'maintenance' ? 'warning' : 'success'">
-            {{ VEHICLE_LABEL[vehicle.status] }}
+          <p class="mt-1 text-xs text-muted-foreground">{{ row.driverName }}</p>
+          <Badge class="mt-2" :variant="row.vehicle.status === 'on_mission' ? 'onorder' : row.vehicle.status === 'maintenance' ? 'warning' : 'success'">
+            {{ row.statusLabel }}
           </Badge>
         </button>
       </section>
       <section class="space-y-2">
         <h2 class="text-sm font-semibold">Chauffeurs</h2>
+        <EmptyState v-if="!driverRows.length" title="Aucun chauffeur" />
         <button
-          v-for="driver in drivers"
-          :key="driver.id"
+          v-for="row in driverRows"
+          :key="row.driver.id"
           class="surface flex w-full flex-col items-start border-l-4 border-l-primary/40 px-4 py-3.5 text-left transition-colors hover:bg-muted/40"
-          @click="canManage && openEditDriverRow(driver)"
+          @click="canManage && openEditDriverRow(row)"
         >
-          <p class="font-medium">{{ driverName(driver.id) }}</p>
-          <p class="mt-0.5 text-sm text-muted-foreground">{{ driver.phone }}</p>
-          <p class="mt-1 text-xs text-muted-foreground">{{ assignedVehicleLabel(driver) }}</p>
-          <Badge class="mt-2" :variant="driver.status === 'on_route' ? 'onorder' : driver.status === 'off' ? 'warning' : 'success'">
-            {{ DRIVER_LABEL[driver.status] }}
+          <p class="font-medium">{{ row.name }}</p>
+          <p class="mt-0.5 text-sm text-muted-foreground">{{ row.driver.phone }}</p>
+          <p class="mt-1 text-xs text-muted-foreground">{{ row.vehicleLabel }}</p>
+          <Badge class="mt-2" :variant="row.driver.status === 'on_route' ? 'onorder' : row.driver.status === 'off' ? 'warning' : 'success'">
+            {{ row.statusLabel }}
           </Badge>
         </button>
       </section>
@@ -942,6 +1006,38 @@ function stopCount(routeId: string) {
       @edit="openEditRoute"
       @add-stop="openNewDelivery(selectedRouteId ?? undefined)"
     />
+    <DeliveryFormSheet
+      :open="deliveryFormOpen"
+      :delivery="editingDelivery"
+      :routes="routes"
+      :shipping-notes="shippingNotes"
+      :initial-route-id="initialRouteId"
+      @close="deliveryFormOpen = false; editingDelivery = null"
+      @submit="saveDelivery"
+    />
+    <RouteFormSheet
+      :open="routeFormOpen"
+      :route="editingRoute"
+      :deliveries="deliveries"
+      :warehouses="warehouses"
+      :vehicles="vehicles"
+      :drivers="driverOptions"
+      :shipping-notes="shippingNotes"
+      @close="routeFormOpen = false; editingRoute = null"
+      @submit="saveRoute"
+    />
+    <ShipmentFormSheet
+      :open="shipmentFormOpen"
+      :shipment="editingShipment"
+      :warehouses="warehouses"
+      :vehicles="vehicles"
+      :drivers="driverOptions"
+      :routes="routes"
+      :deliveries="deliveries"
+      :shipping-notes="shippingNotes"
+      @close="shipmentFormOpen = false; editingShipment = null"
+      @submit="saveShipment"
+    />
     <ShippingNoteFormSheet
       :open="noteFormOpen"
       :note="editingNote"
@@ -959,7 +1055,7 @@ function stopCount(routeId: string) {
     >
       <div v-if="selectedNote" class="space-y-3">
         <p class="text-sm text-muted-foreground">
-          {{ warehouseName(selectedNote.warehouseId) }} · {{ SHIPPING_NOTE_LABEL[selectedNote.status] }}
+          {{ noteLinked.warehouseName }} · {{ SHIPPING_NOTE_LABEL[selectedNote.status] }}
         </p>
         <OfficialDocument
           title="Bon de livraison"
@@ -1062,7 +1158,7 @@ function stopCount(routeId: string) {
     <VehicleFormSheet
       :open="vehicleFormOpen"
       :vehicle="editingVehicle"
-      :warehouses="allWarehouses"
+      :warehouses="warehouses"
       :drivers="driverOptions"
       :assignments="drivers"
       @close="vehicleFormOpen = false; editingVehicle = null"
@@ -1073,7 +1169,7 @@ function stopCount(routeId: string) {
       :driver="editingDriver"
       :user="editingDriver ? driverUser(editingDriver) : null"
       :vehicles="vehicles"
-      :warehouses="allWarehouses"
+      :warehouses="warehouses"
       @close="driverFormOpen = false; editingDriver = null"
       @submit="saveDriver"
     />

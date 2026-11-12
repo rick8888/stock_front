@@ -36,7 +36,7 @@ const totalQty = computed(() => props.lines.reduce((sum, line) => sum + line.qua
     <div class="grid gap-4 px-4 py-3 text-sm sm:grid-cols-2">
       <div>
         <p class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Expéditeur</p>
-        <p class="mt-1 font-medium">Bravo.Stock · {{ originName }}</p>
+        <p class="mt-1 font-medium">BravoStock · {{ originName }}</p>
         <p v-if="originAddress" class="text-xs text-muted-foreground">{{ originAddress }}</p>
       </div>
       <div>

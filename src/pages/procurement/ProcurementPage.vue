@@ -1,10 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useProcurement } from '@/composables/useProcurement'
-import { useSuppliers } from '@/composables/useSuppliers'
-import { useProducts } from '@/composables/useProducts'
-import { useWarehouses } from '@/composables/useWarehouses'
 import { usePermissions } from '@/composables/usePermissions'
 import { useCurrentUser } from '@/composables/useAuth'
 import { useActionBusy } from '@/composables/useActionBusy'
@@ -14,6 +11,7 @@ import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
 import PageSkeleton from '@/components/feedback/PageSkeleton.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
+import ErrorState from '@/components/feedback/ErrorState.vue'
 import RequestStatusBadge from '@/components/purchasing/RequestStatusBadge.vue'
 import RequestDetailSheet from '@/components/purchasing/RequestDetailSheet.vue'
 import RequestFormSheet from '@/components/purchasing/RequestFormSheet.vue'
@@ -22,7 +20,6 @@ import ReceiptDetailSheet from '@/components/purchasing/ReceiptDetailSheet.vue'
 import OrderDetailSheet from '@/components/purchasing/OrderDetailSheet.vue'
 import OrderStatusBadge from '@/components/purchasing/OrderStatusBadge.vue'
 import { formatMoney, formatDateTime, formatDate } from '@/lib/utils'
-import { normalizeStatus } from '@/services/request.overview'
 import { RECEIPT_LABEL } from '@/services/receipt.overview'
 import { orderEtaLabel } from '@/services/order.overview'
 import type { RequestOverview } from '@/services/request.overview'
@@ -38,7 +35,17 @@ const {
   overviews,
   orderOverviews,
   receiptOverviews,
+  supplierRows,
   counts,
+  page,
+  pages,
+  total,
+  products,
+  warehouses,
+  suppliers,
+  sourcingOffers,
+  loadBoard,
+  loadSourcing,
   createRequest,
   approveRequest,
   takeCharge,
@@ -51,17 +58,17 @@ const {
   confirmOrder,
   ensureOrderReceipt,
   validateReceipt,
-  sourcingFor,
   groupableWith,
   isReadyToPurchase,
   rejectRequest,
   requestChanges,
+  createSupplier,
+  updateSupplier,
   loading,
-} = useProcurement()
-const { suppliers, createSupplier, updateSupplier } = useSuppliers()
-const { products } = useProducts()
-const { warehouses } = useWarehouses()
+  error,
+} = useProcurement({ autoload: false })
 const route = useRoute()
+const router = useRouter()
 
 const tab = ref(typeof route.query.tab === 'string' ? route.query.tab : defaultTab())
 watch(
@@ -84,68 +91,113 @@ const selectedReceipt = ref<ReceiptOverview | null>(null)
 const selectedOrder = ref<OrderOverview | null>(null)
 const receiptFilter = ref<'all' | 'pending' | 'partial' | 'validated'>('pending')
 const orderFilter = ref<'open' | 'delayed' | 'received' | 'all'>('open')
+const supplierFilter = ref<'all' | 'active' | 'pending'>('all')
+const listPage = ref(1)
 const reqOpen = ref(false)
 const supOpen = ref(false)
 const editingSupplier = ref<Supplier | null>(null)
 
-const filtered = computed(() =>
-  overviews.value.filter((item) => {
-    if (filter.value === 'all') return true
-    const status = normalizeStatus(item.request.status)
-    if (filter.value === 'ordered') return status === 'ordered' || status === 'closed'
-    if (filter.value === 'submitted') return status === 'submitted'
-    return status === filter.value
-  }),
-)
-
-const receiptChips = computed(() => {
-  const list = receiptOverviews.value
-  return [
-    { id: 'pending' as const, label: 'À faire', count: list.filter((item) => item.receipt.status === 'pending' || item.receipt.status === 'checking').length },
-    { id: 'partial' as const, label: 'Écarts', count: list.filter((item) => item.receipt.status === 'partial').length },
-    { id: 'validated' as const, label: 'Validées', count: list.filter((item) => item.receipt.status === 'validated').length },
-    { id: 'all' as const, label: 'Toutes', count: list.length },
-  ]
-})
-
-const filteredReceipts = computed(() =>
-  receiptOverviews.value.filter((item) => {
-    if (receiptFilter.value === 'all') return true
-    if (receiptFilter.value === 'pending') return item.receipt.status === 'pending' || item.receipt.status === 'checking'
-    return item.receipt.status === receiptFilter.value
-  }),
-)
+const filtered = computed(() => overviews.value)
+const filteredOrders = computed(() => orderOverviews.value)
+const filteredReceipts = computed(() => receiptOverviews.value)
 
 const chips = computed(() => [
-  { id: 'all' as const, label: 'Toutes', count: counts.value.all },
-  { id: 'submitted' as const, label: 'À valider', count: counts.value.submitted },
-  { id: 'in_review' as const, label: 'En validation', count: counts.value.in_review },
-  { id: 'approved' as const, label: 'Validées / à traiter', count: counts.value.approved },
-  { id: 'rejected' as const, label: 'Rejetées', count: counts.value.rejected },
-  { id: 'ordered' as const, label: 'Traitées', count: counts.value.ordered },
-  // État d'exception : l'onglet ne s'affiche que s'il a matière à montrer.
+  { id: 'all' as const, label: 'Toutes', count: counts.value.all ?? 0 },
+  { id: 'submitted' as const, label: 'À valider', count: counts.value.submitted ?? 0 },
+  { id: 'in_review' as const, label: 'En validation', count: counts.value.in_review ?? 0 },
+  { id: 'approved' as const, label: 'Validées / à traiter', count: counts.value.approved ?? 0 },
+  { id: 'rejected' as const, label: 'Rejetées', count: counts.value.rejected ?? 0 },
+  { id: 'ordered' as const, label: 'Traitées', count: counts.value.ordered ?? 0 },
   ...(counts.value.expired
     ? [{ id: 'expired' as const, label: 'Périmées', count: counts.value.expired }]
     : []),
 ])
 
-const orderChips = computed(() => {
-  const list = orderOverviews.value
-  return [
-    { id: 'open' as const, label: 'En cours', count: list.filter((item) => !['received', 'cancelled'].includes(item.order.status)).length },
-    { id: 'delayed' as const, label: 'En retard', count: list.filter((item) => item.late).length },
-    { id: 'received' as const, label: 'Reçues', count: list.filter((item) => item.order.status === 'received').length },
-    { id: 'all' as const, label: 'Toutes', count: list.length },
-  ]
-})
+const orderChips = computed(() => [
+  { id: 'open' as const, label: 'En cours', count: counts.value.open ?? 0 },
+  { id: 'delayed' as const, label: 'En retard', count: counts.value.delayed ?? 0 },
+  { id: 'received' as const, label: 'Reçues', count: counts.value.received ?? 0 },
+  { id: 'all' as const, label: 'Toutes', count: counts.value.all ?? 0 },
+])
 
-const filteredOrders = computed(() =>
-  orderOverviews.value.filter((item) => {
-    if (orderFilter.value === 'all') return true
-    if (orderFilter.value === 'delayed') return item.late
-    if (orderFilter.value === 'received') return item.order.status === 'received'
-    return !['received', 'cancelled'].includes(item.order.status)
-  }),
+const receiptChips = computed(() => [
+  { id: 'pending' as const, label: 'À faire', count: counts.value.pending ?? 0 },
+  { id: 'partial' as const, label: 'Écarts', count: counts.value.partial ?? 0 },
+  { id: 'validated' as const, label: 'Validées', count: counts.value.validated ?? 0 },
+  { id: 'all' as const, label: 'Toutes', count: counts.value.all ?? 0 },
+])
+
+const supplierChips = computed(() => [
+  { id: 'all' as const, label: 'Tous', count: counts.value.all ?? 0 },
+  { id: 'active' as const, label: 'Actifs', count: counts.value.active ?? 0 },
+  { id: 'pending' as const, label: 'En attente', count: counts.value.pending ?? 0 },
+])
+
+function sectionOfTab(value: string): 'requests' | 'orders' | 'receipts' | 'suppliers' | null {
+  if (value === 'orders') return 'orders'
+  if (value === 'receipts') return 'receipts'
+  if (value === 'suppliers') return 'suppliers'
+  if (value === 'requests') return 'requests'
+  return null
+}
+
+function activeFilter() {
+  if (tab.value === 'orders') return orderFilter.value
+  if (tab.value === 'receipts') return receiptFilter.value
+  if (tab.value === 'suppliers') return supplierFilter.value
+  return filter.value
+}
+
+function reloadBoard(silent = true) {
+  const section = sectionOfTab(tab.value)
+  if (!section) return
+  void loadBoard(
+    {
+      section,
+      filter: activeFilter(),
+      page: listPage.value,
+      pageSize: 8,
+      focusId:
+        typeof route.query.request === 'string'
+          ? route.query.request
+          : typeof route.query.order === 'string'
+            ? route.query.order
+            : typeof route.query.receipt === 'string'
+              ? route.query.receipt
+              : typeof route.query.supplier === 'string'
+                ? route.query.supplier
+                : undefined,
+    },
+    silent,
+  )
+}
+
+const suppressBoardWatch = ref(false)
+
+watch(
+  [tab, filter, orderFilter, receiptFilter, supplierFilter, listPage],
+  ([nextTab], [prevTab]) => {
+    if (suppressBoardWatch.value) return
+    if (nextTab !== prevTab) listPage.value = 1
+    reloadBoard(true)
+  },
+)
+
+watch(
+  [selected, groupIds],
+  ([overview, groups]) => {
+    if (!overview) return
+    const ids = groups.length ? groups : [overview.request.id]
+    void loadSourcing(ids)
+  },
+  { deep: true },
+)
+
+watch(
+  page,
+  (value) => {
+    if (value && value !== listPage.value) listPage.value = value
+  },
 )
 
 const pageTitle = computed(() => {
@@ -162,8 +214,26 @@ const pageDescription = computed(() => {
   return 'Valider, regrouper si besoin, commander, puis réceptionner.'
 })
 
+onMounted(() => {
+  // Deep-link OA → BR : un reload « orders » concurrent écraserait la fiche réception.
+  if (route.query.action === 'receive' && typeof route.query.order === 'string') {
+    void loadBoard(
+      {
+        section: 'orders',
+        filter: orderFilter.value,
+        page: 1,
+        pageSize: 8,
+        focusId: route.query.order,
+      },
+      false,
+    )
+    return
+  }
+  reloadBoard(false)
+})
+
 function toneBar(overview: RequestOverview) {
-  const status = normalizeStatus(overview.request.status)
+  const status = overview.request.status === 'cancelled' ? 'rejected' : overview.request.status
   if (status === 'rejected') return 'border-l-red-500'
   if (status === 'expired') return 'border-l-muted-foreground/40'
   if (status === 'submitted' || status === 'in_review') return 'border-l-amber-500'
@@ -234,13 +304,29 @@ watch(
   },
 )
 
+const receiveHandledFor = ref<string | null>(null)
+
 watch(
-  () => [route.query.order, orderOverviews.value] as const,
-  () => {
+  () => [route.query.order, route.query.action, orderOverviews.value] as const,
+  async () => {
     const id = route.query.order
-    if (typeof id !== 'string' || !id) return
+    if (typeof id !== 'string' || !id) {
+      receiveHandledFor.value = null
+      return
+    }
     const item = orderOverviews.value.find((row) => row.order.id === id)
-    if (item) selectedOrder.value = item
+    if (!item) return
+    selectedOrder.value = item
+    if (route.query.action === 'receive' && receiveHandledFor.value !== id) {
+      receiveHandledFor.value = id
+      const receiptId = item.linkedReceipt?.id
+      if (receiptId) {
+        // Chemin démo fiable : bascule URL → watch receipt ouvre la fiche.
+        await router.replace({ path: '/procurement', query: { tab: 'receipts', receipt: receiptId } })
+        return
+      }
+      await onOpenOrderReceipt()
+    }
   },
 )
 
@@ -361,12 +447,36 @@ async function onAttachQuote(payload: { quoteId: string; file: QuoteFile }) {
   })
 }
 
+async function openReceiptById(id: string) {
+  // Coupe le watch [tab, filters] le temps de basculer : sinon un reload
+  // « orders » concurrent laisse l’onglet Réceptions avec un board commandes.
+  suppressBoardWatch.value = true
+  try {
+    listPage.value = 1
+    receiptFilter.value = 'pending'
+    tab.value = 'receipts'
+    await loadBoard(
+      { section: 'receipts', filter: 'pending', page: 1, pageSize: 8, focusId: id },
+      true,
+    )
+    selectedReceipt.value =
+      receiptOverviews.value.find((item) => item.receipt.id === id) ??
+      receiptOverviews.value.find((item) => item.receipt.purchaseOrderId === id) ??
+      null
+    // Aligne l’URL pour que l’état (tab + fiche) survive aux reloads concurrent.
+    if (route.query.tab !== 'receipts' || route.query.receipt !== id) {
+      await router.replace({ path: '/procurement', query: { tab: 'receipts', receipt: id } })
+    }
+  } finally {
+    suppressBoardWatch.value = false
+  }
+}
+
 async function onOpenReceipt() {
   if (!selected.value?.linkedReceipt) return
   const id = selected.value.linkedReceipt.id
   selected.value = null
-  tab.value = 'receipts'
-  selectedReceipt.value = receiptOverviews.value.find((item) => item.receipt.id === id) ?? null
+  await openReceiptById(id)
 }
 
 async function onOpenOrderReceipt() {
@@ -379,8 +489,7 @@ async function onOpenOrderReceipt() {
       ?? receiptOverviews.value.find((item) => item.receipt.purchaseOrderId === selectedOrder.value?.order.id)?.receipt.id
     if (!id) return
     selectedOrder.value = null
-    tab.value = 'receipts'
-    selectedReceipt.value = receiptOverviews.value.find((item) => item.receipt.id === id) ?? null
+    await openReceiptById(id)
   })
 }
 
@@ -440,6 +549,7 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
     else await createSupplier(payload.input)
     supOpen.value = false
     editingSupplier.value = null
+    if (tab.value === 'suppliers') reloadBoard(true)
   })
 }
 </script>
@@ -458,6 +568,7 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
     </PageHeader>
     <Tabs v-model="tab" :tabs="tabs" class="mb-6" />
     <PageSkeleton v-if="loading" />
+    <ErrorState v-else-if="error" :message="error" />
 
     <template v-else-if="tab === 'requests'">
       <div class="mb-4 flex flex-wrap gap-2">
@@ -466,7 +577,7 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
           :key="chip.id"
           class="chip"
           :class="filter === chip.id ? 'chip-active' : 'bg-card text-muted-foreground'"
-          @click="filter = chip.id"
+          @click="filter = chip.id; listPage = 1"
         >
           {{ chip.label }} {{ chip.count }}
         </button>
@@ -517,6 +628,14 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
           </div>
         </div>
       </div>
+      <div v-if="pages > 1" class="mt-3 flex items-center justify-between text-[13px]">
+        <p class="text-muted-foreground">{{ total }} demandes</p>
+        <div class="flex gap-1.5">
+          <Button size="sm" variant="outline" :disabled="listPage <= 1" @click="listPage -= 1">Précédent</Button>
+          <span class="px-2 py-1 tabular-nums text-muted-foreground">{{ page }}/{{ pages }}</span>
+          <Button size="sm" variant="outline" :disabled="listPage >= pages" @click="listPage += 1">Suivant</Button>
+        </div>
+      </div>
     </template>
 
     <div v-else-if="tab === 'orders'">
@@ -526,7 +645,7 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
           :key="chip.id"
           class="chip"
           :class="orderFilter === chip.id ? 'chip-active' : 'bg-card text-muted-foreground'"
-          @click="orderFilter = chip.id"
+          @click="orderFilter = chip.id; listPage = 1"
         >
           {{ chip.label }} {{ chip.count }}
         </button>
@@ -554,9 +673,17 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
           </div>
           <div class="shrink-0 text-right">
             <p class="text-sm font-semibold">{{ formatMoney(item.order.amount) }}</p>
-            <p class="text-xs text-muted-foreground">{{ orderEtaLabel(item.order, item.late) }}</p>
+            <p class="text-xs text-muted-foreground">{{ (item as OrderOverview & { etaLabel?: string }).etaLabel ?? orderEtaLabel(item.order, item.late) }}</p>
           </div>
         </button>
+      </div>
+      <div v-if="pages > 1" class="mt-3 flex items-center justify-between text-[13px]">
+        <p class="text-muted-foreground">{{ total }} commandes</p>
+        <div class="flex gap-1.5">
+          <Button size="sm" variant="outline" :disabled="listPage <= 1" @click="listPage -= 1">Précédent</Button>
+          <span class="px-2 py-1 tabular-nums text-muted-foreground">{{ page }}/{{ pages }}</span>
+          <Button size="sm" variant="outline" :disabled="listPage >= pages" @click="listPage += 1">Suivant</Button>
+        </div>
       </div>
     </div>
     <div v-else-if="tab === 'receipts'">
@@ -566,7 +693,7 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
           :key="chip.id"
           class="chip"
           :class="receiptFilter === chip.id ? 'chip-active' : 'bg-card text-muted-foreground'"
-          @click="receiptFilter = chip.id"
+          @click="receiptFilter = chip.id; listPage = 1"
         >
           {{ chip.label }} {{ chip.count }}
         </button>
@@ -597,11 +724,31 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
           <p class="text-sm font-semibold">{{ item.receipt.received }}/{{ item.receipt.expected }}</p>
         </button>
       </div>
+      <div v-if="pages > 1" class="mt-3 flex items-center justify-between text-[13px]">
+        <p class="text-muted-foreground">{{ total }} réceptions</p>
+        <div class="flex gap-1.5">
+          <Button size="sm" variant="outline" :disabled="listPage <= 1" @click="listPage -= 1">Précédent</Button>
+          <span class="px-2 py-1 tabular-nums text-muted-foreground">{{ page }}/{{ pages }}</span>
+          <Button size="sm" variant="outline" :disabled="listPage >= pages" @click="listPage += 1">Suivant</Button>
+        </div>
+      </div>
     </div>
     <div v-else class="space-y-2">
-      <EmptyState v-if="!suppliers.length" title="Aucun fournisseur." />
+      <div class="mb-4 flex flex-wrap gap-2">
+        <button
+          v-for="chip in supplierChips"
+          :key="chip.id"
+          class="chip"
+          :class="supplierFilter === chip.id ? 'chip-active' : 'bg-card text-muted-foreground'"
+          @click="supplierFilter = chip.id; listPage = 1"
+        >
+          {{ chip.label }}
+          <span class="tabular-nums opacity-70">{{ chip.count }}</span>
+        </button>
+      </div>
+      <EmptyState v-if="!supplierRows.length" title="Aucun fournisseur." />
       <button
-        v-for="supplier in suppliers"
+        v-for="supplier in supplierRows"
         :key="supplier.id"
         class="surface flex w-full items-start justify-between border-l-4 px-4 py-3.5 text-left hover:bg-muted/40"
         :class="supplier.status === 'active' ? 'border-l-emerald-500' : 'border-l-amber-500'"
@@ -628,12 +775,20 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
           <p class="text-xs text-muted-foreground">Délai {{ supplier.leadTimeDays }} j</p>
         </div>
       </button>
+      <div v-if="pages > 1" class="mt-3 flex items-center justify-between text-[13px]">
+        <p class="text-muted-foreground">{{ total }} fournisseurs</p>
+        <div class="flex gap-1.5">
+          <Button size="sm" variant="outline" :disabled="listPage <= 1" @click="listPage -= 1">Précédent</Button>
+          <span class="px-2 py-1 tabular-nums text-muted-foreground">{{ page }}/{{ pages }}</span>
+          <Button size="sm" variant="outline" :disabled="listPage >= pages" @click="listPage += 1">Suivant</Button>
+        </div>
+      </div>
     </div>
 
     <RequestDetailSheet
       :open="!!selected"
       :overview="selected"
-      :offers="selected ? sourcingFor(groupIds.length ? groupIds : [selected.request.id]) : []"
+      :offers="sourcingOffers"
       :groupable="selected ? groupableWith(selected.request.id) : []"
       :group-ids="groupIds"
       :suppliers="suppliers"

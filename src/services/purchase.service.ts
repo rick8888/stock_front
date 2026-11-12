@@ -22,6 +22,9 @@ export const purchaseService = {
 
   async createFromOffer(requestIds: string | string[], supplierId: string) {
     const ids = [...new Set(Array.isArray(requestIds) ? requestIds : [requestIds])]
+    if (purchaseRepository.createFromOffer) {
+      return purchaseRepository.createFromOffer(ids, supplierId)
+    }
     const [requests, products, suppliers, stock, existing] = await Promise.all([
       procurementRepository.list(),
       productService.list(),
@@ -60,7 +63,7 @@ export const purchaseService = {
     const merged = mergeOverviewsForSourcing(overviews)
     if (!merged) throw new Error('Rien à commander')
     const catalog = await supplierProductRepository.list()
-    const offer = buildSourcingOffersFor(overviews, products, suppliers, catalog).find(
+    const offer = buildSourcingOffersFor(overviews, products, suppliers, catalog, existing).find(
       (item) => item.supplierId === supplierId,
     )
     if (!offer) throw new Error('Offre fournisseur introuvable')

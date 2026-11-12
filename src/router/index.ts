@@ -9,6 +9,11 @@ import { moduleForPath } from '@/utils/entitlements'
 
 const routes: RouteRecordRaw[] = [
   {
+    path: '/accueil',
+    name: 'landing',
+    component: () => import('@/pages/marketing/LandingPage.vue'),
+  },
+  {
     path: '/login',
     component: () => import('@/layouts/AuthLayout.vue'),
     children: [
@@ -38,18 +43,54 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', redirect: '/today' },
       { path: 'today', component: () => import('@/pages/today/TodayPage.vue') },
-      { path: 'assistant', component: () => import('@/pages/assistant/AssistantPage.vue'), meta: { module: 'assistant' satisfies PlanModule } },
+      {
+        path: 'assistant',
+        component: () => import('@/pages/assistant/AssistantPage.vue'),
+        meta: { module: 'assistant' satisfies PlanModule },
+      },
       { path: 'tasks', component: () => import('@/pages/tasks/TasksPage.vue'), meta: { permission: 'task.view' } },
-      { path: 'planning', component: () => import('@/pages/planning/PlanningPage.vue'), meta: { permission: 'task.view' } },
+      {
+        path: 'planning',
+        component: () => import('@/pages/planning/PlanningPage.vue'),
+        meta: { permission: 'task.view' },
+      },
       { path: 'alerts', component: () => import('@/pages/alerts/AlertsPage.vue') },
-      { path: 'stock', component: () => import('@/pages/stock/StockPage.vue'), meta: { permission: 'stock.view', module: 'stock' satisfies PlanModule } },
-      { path: 'procurement', component: () => import('@/pages/procurement/ProcurementPage.vue'), meta: { permission: 'procurement.view', module: 'procurement' satisfies PlanModule } },
+      {
+        path: 'stock',
+        component: () => import('@/pages/stock/StockPage.vue'),
+        meta: { permission: 'stock.view', module: 'stock' satisfies PlanModule },
+      },
+      {
+        path: 'procurement',
+        component: () => import('@/pages/procurement/ProcurementPage.vue'),
+        meta: { permission: 'procurement.view', module: 'procurement' satisfies PlanModule },
+      },
       { path: 'purchasing', redirect: '/procurement' },
-      { path: 'logistics', component: () => import('@/pages/logistics/LogisticsPage.vue'), meta: { permission: 'delivery.view', module: 'logistics' satisfies PlanModule } },
-      { path: 'finance', component: () => import('@/pages/finance/FinancePage.vue'), meta: { permission: 'finance.view', module: 'finance' satisfies PlanModule } },
-      { path: 'analytics', component: () => import('@/pages/analytics/AnalyticsPage.vue'), meta: { permission: 'analytics.view', module: 'analytics' satisfies PlanModule } },
-      { path: 'analytics/forecasts', component: () => import('@/pages/analytics/ForecastsPage.vue'), meta: { permission: 'analytics.view', module: 'analytics' satisfies PlanModule } },
-      { path: 'analytics/reports', component: () => import('@/pages/analytics/ReportsPage.vue'), meta: { permission: 'analytics.view', module: 'analytics' satisfies PlanModule } },
+      {
+        path: 'logistics',
+        component: () => import('@/pages/logistics/LogisticsPage.vue'),
+        meta: { permission: 'delivery.view', module: 'logistics' satisfies PlanModule },
+      },
+      {
+        path: 'finance',
+        component: () => import('@/pages/finance/FinancePage.vue'),
+        meta: { permission: 'finance.view', module: 'finance' satisfies PlanModule },
+      },
+      {
+        path: 'analytics',
+        component: () => import('@/pages/analytics/AnalyticsPage.vue'),
+        meta: { permission: 'analytics.view', module: 'analytics' satisfies PlanModule },
+      },
+      {
+        path: 'analytics/forecasts',
+        component: () => import('@/pages/analytics/ForecastsPage.vue'),
+        meta: { permission: 'analytics.view', module: 'analytics' satisfies PlanModule },
+      },
+      {
+        path: 'analytics/reports',
+        component: () => import('@/pages/analytics/ReportsPage.vue'),
+        meta: { permission: 'analytics.view', module: 'analytics' satisfies PlanModule },
+      },
       { path: 'admin', component: () => import('@/pages/admin/AdminPage.vue'), meta: { permission: 'user.view' } },
       {
         path: 'platform',
@@ -63,19 +104,38 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/today' },
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: () => {
+      const auth = useAuthStore()
+      return auth.isAuthenticated ? homeFor(auth.currentUser?.role) : '/accueil'
+    },
+  },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior(to) {
+    if (to.hash) return { el: to.hash, behavior: 'smooth' }
+    return { top: 0 }
+  },
 })
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   const entitlements = useEntitlementsStore()
   const needsAuth = to.matched.some((record) => record.meta.auth)
+
+  if (to.name === 'landing' && auth.isAuthenticated && auth.currentUser) {
+    return homeFor(auth.currentUser.role)
+  }
+
+  // Invité sur `/` → landing (pas l’écran de login).
+  if (!auth.isAuthenticated && to.path === '/') {
+    return '/accueil'
+  }
+
   if (needsAuth && !auth.isAuthenticated) {
     return { path: '/login', query: to.path !== '/' ? { redirect: to.fullPath } : undefined }
   }
@@ -98,7 +158,12 @@ router.beforeEach(async (to) => {
   if (to.path.startsWith('/account') && auth.currentUser && auth.currentUser.role !== 'TENANT_OWNER') {
     return homeFor(auth.currentUser.role)
   }
-  if (auth.currentUser?.role === 'DRIVER' && !to.path.startsWith('/driver') && to.path !== '/alerts') {
+  if (
+    auth.currentUser?.role === 'DRIVER' &&
+    !to.path.startsWith('/driver') &&
+    to.path !== '/alerts' &&
+    to.name !== 'landing'
+  ) {
     if (to.matched.some((record) => record.meta.auth) && to.path !== '/login') return '/driver/today'
   }
   const permission = to.matched.find((record) => record.meta.permission)?.meta.permission as PermissionKey | undefined

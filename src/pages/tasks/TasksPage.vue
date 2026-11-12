@@ -3,7 +3,6 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Check,
-  CircleAlert,
   Clock3,
   ListTodo,
   Loader2,
@@ -27,10 +26,10 @@ import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import { formatTime } from '@/lib/utils'
-import { DEMO_TODAY, opsToday, dayKey, isoAt } from '@/utils/helpers'
+import { opsToday, isoAt } from '@/utils/helpers'
 import type { Task, TaskPriority } from '@/types'
 
-const { mine, loading, createTask, completeTask } = useTasks()
+const { board, loading, createTask, completeTask } = useTasks()
 const { currentUser } = useCurrentUser()
 const { can } = usePermissions()
 const { busy, run, isBusy } = useActionBusy()
@@ -40,35 +39,13 @@ const open = ref(false)
 const title = ref('')
 const description = ref('')
 const priority = ref<TaskPriority>('medium')
-const dueAt = ref(`${DEMO_TODAY}T18:00`)
+const dueAt = ref(`${opsToday()}T18:00`)
 const filter = ref<'open' | 'today' | 'overdue' | 'done'>('open')
 
-const openTasks = computed(() => mine.value.filter((item) => item.status !== 'done'))
-const overdue = computed(() =>
-  openTasks.value.filter((item) => dayKey(item.dueAt) < opsToday()).sort(byDue),
+/** Compteurs / groupes fournis par GET /tasks/board — pas de recalcul métier ici. */
+const counts = computed(
+  () => board.value?.counts ?? { open: 0, today: 0, overdue: 0, done: 0 },
 )
-const today = computed(() =>
-  openTasks.value.filter((item) => dayKey(item.dueAt) === opsToday()).sort(byDue),
-)
-const later = computed(() =>
-  openTasks.value.filter((item) => dayKey(item.dueAt) > opsToday()).sort(byDue),
-)
-const done = computed(() =>
-  mine.value.filter((item) => item.status === 'done').sort((a, b) => b.dueAt.localeCompare(a.dueAt)),
-)
-
-function byDue(a: Task, b: Task) {
-  const rank = { high: 0, medium: 1, low: 2 }
-  if (rank[a.priority] !== rank[b.priority]) return rank[a.priority] - rank[b.priority]
-  return a.dueAt.localeCompare(b.dueAt)
-}
-
-const counts = computed(() => ({
-  open: openTasks.value.length,
-  today: today.value.length,
-  overdue: overdue.value.length,
-  done: done.value.length,
-}))
 
 const descriptionText = computed(() => {
   const role = currentUser.value?.role
@@ -80,14 +57,18 @@ const descriptionText = computed(() => {
 })
 
 const groups = computed(() => {
-  if (filter.value === 'today') return [{ id: 'today', title: 'Aujourd’hui', items: today.value }]
-  if (filter.value === 'overdue') return [{ id: 'overdue', title: 'En retard', items: overdue.value }]
-  if (filter.value === 'done') return [{ id: 'done', title: 'Faites', items: done.value }]
-  return [
-    { id: 'overdue', title: 'En retard', items: overdue.value },
-    { id: 'today', title: 'Aujourd’hui', items: today.value },
-    { id: 'later', title: 'Plus tard', items: later.value },
-  ].filter((group) => group.items.length)
+  const payload = board.value
+  if (!payload) return []
+  if (filter.value === 'today') {
+    return payload.groups.filter((group) => group.id === 'today')
+  }
+  if (filter.value === 'overdue') {
+    return payload.groups.filter((group) => group.id === 'overdue')
+  }
+  if (filter.value === 'done') {
+    return [{ id: 'done', title: 'Faites', items: payload.done }]
+  }
+  return payload.groups
 })
 
 const chips = computed(() => [
@@ -97,12 +78,11 @@ const chips = computed(() => [
   { id: 'done' as const, label: 'Faites', count: counts.value.done },
 ])
 
-function dueLabel(task: Task) {
-  const key = dayKey(task.dueAt)
+function dueLabel(task: Task, groupId?: string) {
   const time = formatTime(task.dueAt)
-  if (task.status === 'done') return time
-  if (key < opsToday()) return `En retard · ${time}`
-  if (key === opsToday()) return `Aujourd’hui · ${time}`
+  if (task.status === 'done' || groupId === 'done') return time
+  if (groupId === 'overdue') return `En retard · ${time}`
+  if (groupId === 'today') return `Aujourd’hui · ${time}`
   return new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(
     new Date(task.dueAt),
   )
@@ -144,9 +124,9 @@ function relatedIcon(type?: string) {
   return ListTodo
 }
 
-function toneClass(task: Task) {
-  if (task.status === 'done') return 'border-l-transparent opacity-60'
-  if (dayKey(task.dueAt) < opsToday()) return 'border-l-red-500'
+function toneClass(task: Task, groupId?: string) {
+  if (task.status === 'done' || groupId === 'done') return 'border-l-transparent opacity-60'
+  if (groupId === 'overdue') return 'border-l-red-500'
   if (task.priority === 'high') return 'border-l-amber-500'
   return 'border-l-transparent'
 }
@@ -244,7 +224,7 @@ async function onComplete(id: string) {
               v-for="task in group.items"
               :key="task.id"
               class="flex items-start gap-3 border-b border-border/60 border-l-2 px-3.5 py-3 last:border-b-0"
-              :class="toneClass(task)"
+              :class="toneClass(task, group.id)"
             >
               <button
                 class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border"
@@ -280,7 +260,7 @@ async function onComplete(id: string) {
                 <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span class="inline-flex items-center gap-1">
                     <Clock3 class="size-3.5" />
-                    {{ dueLabel(task) }}
+                    {{ dueLabel(task, group.id) }}
                   </span>
                   <template v-if="relatedLabel(task.relatedType)">
                     <span>·</span>

@@ -37,7 +37,7 @@ const { snapshot, loading } = useAnalytics()
       </div>
       <div class="flex flex-wrap gap-2">
         <RouterLink to="/analytics/reports" class="chip border-border/70 bg-card hover:bg-muted">Rapports CSV</RouterLink>
-        <RouterLink to="/analytics/forecasts" class="chip border-border/70 bg-card hover:bg-muted">Prévisions</RouterLink>
+        <RouterLink to="/analytics/forecasts" class="chip border-border/70 bg-card hover:bg-muted">Réapprovisionnement</RouterLink>
       </div>
     </div>
   </div>

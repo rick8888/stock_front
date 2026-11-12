@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Plus, Trash2 } from 'lucide-vue-next'
+import { Plus, Sparkles, Trash2 } from 'lucide-vue-next'
 import Sheet from '@/components/ui/Sheet.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Badge from '@/components/ui/Badge.vue'
 import ShippingNotePreview from '@/components/logistics/ShippingNotePreview.vue'
-import { DEMO_TODAY, opsToday } from '@/utils/helpers'
+import { DEMO_TODAY } from '@/utils/helpers'
 import { DELIVERY_LABEL, ROUTE_LABEL } from '@/config/logistics'
 import { availableShippingNotes, shippingNoteLabel } from '@/utils/shippingNotes'
+import { logisticsService } from '@/services/logistics.service'
+import type { RouteAssistResult } from '@/services/route.assist'
 import type { Delivery, DeliveryStatus, Route, RouteStatus, ShippingNote, Vehicle, Warehouse } from '@/types'
 import type { RouteInput, RouteStopInput } from '@/repositories/interfaces'
 
@@ -43,10 +45,14 @@ const driverId = ref('')
 const vehicleId = ref('')
 const status = ref<RouteStatus>('planned')
 const stops = ref<FormStop[]>([])
+const assistBusy = ref(false)
+const assistError = ref<string | null>(null)
+const assist = ref<RouteAssistResult | null>(null)
 
 const editing = computed(() => Boolean(props.route))
 const parsedStops = computed(() => stops.value.filter((stop) => stop.shippingNoteId && stop.time))
 const uniqueNotes = computed(() => new Set(parsedStops.value.map((stop) => stop.shippingNoteId)).size)
+const canAssist = computed(() => warehouseId.value && parsedStops.value.length > 0)
 const canSubmit = computed(
   () =>
     name.value.trim().length > 1 &&
@@ -134,6 +140,8 @@ function reset() {
   driverId.value = current?.driverId ?? props.drivers[0]?.id ?? ''
   vehicleId.value = current?.vehicleId ?? props.vehicles[0]?.id ?? ''
   status.value = current?.status ?? 'planned'
+  assist.value = null
+  assistError.value = null
   const existing = (props.deliveries ?? [])
     .filter((item) => item.routeId === current?.id)
     .sort((a, b) => a.sequence - b.sequence)
@@ -147,10 +155,74 @@ function reset() {
   stops.value = existing.length ? existing : [blankStop()]
 }
 
+async function suggestDispatch() {
+  if (!canAssist.value || assistBusy.value) return
+  assistBusy.value = true
+  assistError.value = null
+  try {
+    const result = await logisticsService.assistRoute({
+      warehouseId: warehouseId.value,
+      date: date.value,
+      driverId: driverId.value || undefined,
+      vehicleId: vehicleId.value || undefined,
+      stops: parsedStops.value.map((stop) => {
+        const note = noteOf(stop.shippingNoteId)
+        return {
+          key: stop.key,
+          shippingNoteId: stop.shippingNoteId,
+          client: note?.client,
+          city: note?.city,
+          address: note?.address,
+          scheduledAt: new Date(`${date.value}T${stop.time}`).toISOString(),
+          status: stop.status,
+        }
+      }),
+    })
+    const byKey = new Map(stops.value.map((stop) => [stop.key, stop]))
+    const byNote = new Map(stops.value.map((stop) => [stop.shippingNoteId, stop]))
+    const reordered = result.stops
+      .map((item) => byKey.get(item.key) ?? byNote.get(item.shippingNoteId) ?? null)
+      .filter((item): item is FormStop => Boolean(item))
+    if (reordered.length === stops.value.length) stops.value = reordered
+    const recommendedDriver = result.drivers.find((item) => item.recommended)
+    const recommendedVehicle = result.vehicles.find((item) => item.recommended)
+    if (recommendedDriver && props.drivers.some((item) => item.id === recommendedDriver.driverId)) {
+      driverId.value = recommendedDriver.driverId
+    }
+    if (recommendedVehicle && props.vehicles.some((item) => item.id === recommendedVehicle.vehicleId)) {
+      vehicleId.value = recommendedVehicle.vehicleId
+    }
+    assist.value = result
+  } catch (err) {
+    assistError.value = err instanceof Error ? err.message : 'Suggestion indisponible'
+  } finally {
+    assistBusy.value = false
+  }
+}
+
 watch(
-  () => [props.open, props.route?.id, (props.deliveries ?? []).length] as const,
-  ([open]) => {
+  () => props.open,
+  (open) => {
     if (open) reset()
+  },
+)
+
+watch(
+  () => props.route?.id,
+  (id, previous) => {
+    if (props.open && id !== previous) reset()
+  },
+)
+
+// Hydrate les arrêts quand les livraisons de la tournée éditée arrivent (1re fois).
+watch(
+  () =>
+    props.route?.id
+      ? (props.deliveries ?? []).filter((item) => item.routeId === props.route?.id).length
+      : 0,
+  (count, previous) => {
+    if (!props.open || !props.route?.id) return
+    if (count > 0 && (previous ?? 0) === 0) reset()
   },
 )
 
@@ -233,13 +305,42 @@ function submit() {
         </select>
       </div>
 
+      <div v-if="assist" class="rounded-xl border border-primary/20 bg-primary/5 p-4">
+        <p class="flex items-center gap-2 text-sm font-semibold text-primary">
+          <Sparkles class="size-4" />
+          Suggestion dispatch
+        </p>
+        <p class="mt-2 text-sm">
+          Classement par urgence, ville et proximité — pas une optimisation automatique.
+          <template v-if="assist.distanceKm"> Distance indicative {{ assist.distanceKm }} km.</template>
+        </p>
+        <ul class="mt-2 space-y-0.5 text-xs text-muted-foreground">
+          <li v-for="reason in assist.reasons" :key="reason">· {{ reason }}</li>
+        </ul>
+        <div class="mt-2 flex flex-wrap gap-1.5">
+          <Badge v-if="assist.drivers.find((item) => item.recommended)" variant="info">
+            Chauffeur {{ assist.drivers.find((item) => item.recommended)?.name }}
+          </Badge>
+          <Badge v-if="assist.vehicles.find((item) => item.recommended)" variant="outline">
+            {{ assist.vehicles.find((item) => item.recommended)?.name }}
+          </Badge>
+        </div>
+      </div>
+      <p v-if="assistError" class="text-sm text-destructive">{{ assistError }}</p>
+
       <section>
-        <div class="flex items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-sm font-semibold">Feuille de tournée</h3>
-          <Button size="sm" variant="outline" @click="addStop">
-            <Plus class="size-3.5" />
-            Ajouter un arrêt
-          </Button>
+          <div class="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" :disabled="!canAssist || assistBusy" @click="suggestDispatch">
+              <Sparkles class="size-3.5" />
+              {{ assistBusy ? 'Suggestion…' : 'Proposer ordre & flotte' }}
+            </Button>
+            <Button size="sm" variant="outline" @click="addStop">
+              <Plus class="size-3.5" />
+              Ajouter un arrêt
+            </Button>
+          </div>
         </div>
         <p class="mt-1 text-xs text-muted-foreground">
           Chaque point reprend un bon de livraison préparé. Le client et les articles ne se construisent pas ici.

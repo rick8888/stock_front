@@ -33,7 +33,6 @@ import { toast } from 'vue-sonner'
 import { formatNumber, formatDateTime } from '@/lib/utils'
 import { MOVEMENT_LABEL } from '@/config/stock'
 import { isOnline } from '@/offline/outbox'
-import { opsToday } from '@/utils/helpers'
 import { inventoryScopeLabel } from '@/utils/inventoryScope'
 import type { ProductInput, ShippingNoteInput } from '@/repositories/interfaces'
 import type {
@@ -79,8 +78,9 @@ const {
   ensureReceipt,
   closeDay,
   isClosed,
+  boardToday,
 } = useStock()
-const { createRequest } = useProcurement()
+const { createRequest } = useProcurement({ autoload: false })
 const { createShippingNote } = useShippingNotes()
 const { customers } = useCustomers()
 const { suppliers } = useSuppliers()
@@ -166,7 +166,7 @@ watch(query, (value) => {
   const code = value.trim()
   if (!/^\d{8,14}$/.test(code)) return
   const row = overview.value.find((item) => item.barcode === code)
-  if (row) selected.value = row
+  if (row) selectRow(row)
 })
 
 const chips = computed(() => [
@@ -195,6 +195,22 @@ async function saveProduct(payload: { id?: string; input: ProductInput }) {
   })
 }
 
+function enrichRow(row: StockOverviewRow): StockOverviewRow {
+  const product = products.value.find((item) => item.id === row.productId)
+  if (!product) return row
+  const images = product.images?.length ? product.images : product.imageUrl ? [product.imageUrl] : row.images
+  return {
+    ...row,
+    imageUrl: row.imageUrl ?? product.images?.[0] ?? product.imageUrl,
+    images,
+    description: product.description ?? row.description,
+  }
+}
+
+function selectRow(row: StockOverviewRow) {
+  selected.value = enrichRow(row)
+}
+
 function openNewProduct() {
   editingProduct.value = null
   productOpen.value = true
@@ -207,7 +223,8 @@ function openEditProduct(productId: string) {
 
 watch(overview, (list) => {
   if (!selected.value) return
-  selected.value = list.find((item) => item.id === selected.value?.id) ?? selected.value
+  const next = list.find((item) => item.id === selected.value?.id)
+  if (next) selectRow(next)
 })
 
 watch(
@@ -219,7 +236,7 @@ watch(
     const row =
       overview.value.find((item) => item.productId === article && (!warehouse || item.warehouseId === warehouse)) ??
       overview.value.find((item) => item.productId === article)
-    if (row) selected.value = row
+    if (row) selectRow(row)
   },
   { immediate: true },
 )
@@ -261,7 +278,7 @@ async function onMove(payload: {
 
 function openMove(kind: StockMovementType, row: StockOverviewRow | null = selected.value) {
   if (kind !== 'transfer') return
-  if (row) selected.value = row
+  if (row) selectRow(row)
   moveKind.value = 'transfer'
   moveError.value = ''
   moveOpen.value = true
@@ -272,7 +289,7 @@ function onBarcode(code: string) {
   const row =
     overview.value.find((item) => item.barcode === code) ??
     overview.value.find((item) => item.sku.toLowerCase() === code.toLowerCase())
-  if (row) selected.value = row
+  if (row) selectRow(row)
 }
 
 function onSearchEnter() {
@@ -456,20 +473,48 @@ const closeOpenInventory = computed(() =>
       (!closeWarehouse.value || item.warehouseId === closeWarehouse.value),
   ),
 )
-const closeTodayMoves = computed(() =>
-  movements.value.filter(
+const closeTodayMoves = computed(() => {
+  const today = boardToday.value
+  if (!today) return []
+  return movements.value.filter(
     (item) =>
-      item.date.slice(0, 10) === opsToday() &&
+      item.date.slice(0, 10) === today &&
       (!closeWarehouse.value ||
         item.fromWarehouseId === closeWarehouse.value ||
         item.toWarehouseId === closeWarehouse.value),
-  ),
-)
+  )
+})
 
-function openSupply(row: StockOverviewRow, quantity: number) {
-  selected.value = row
-  supplyQty.value = String(quantity)
-  supplyOpen.value = true
+/** Crée la DA tout de suite (le libellé du bouton promet une création, pas un second formulaire). */
+async function createSupplyFromRecommendation(row: StockOverviewRow, quantity: number) {
+  if (!currentUser.value) {
+    toast.error('Session expirée — reconnectez-vous.')
+    return
+  }
+  if (!can('procurement.create')) {
+    toast.error('Permission refusée pour créer un approvisionnement.')
+    return
+  }
+  if (busy.value) {
+    toast.message('Une autre action est en cours…')
+    return
+  }
+  selectRow(row)
+  const qty = Math.max(1, Math.round(Number(quantity) || 0))
+  try {
+    await run(async () => {
+      await createRequest(
+        row.warehouseId,
+        [{ productId: row.productId, quantity: qty }],
+        `Recommandation stock — ${row.productName}`,
+        { priority: row.status === 'critical' ? 'high' : 'medium', status: 'submitted' },
+      )
+      toast.success(`Demande créée — ${qty} ${row.unit}s`)
+      closeArticle()
+    })
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Création de la demande impossible')
+  }
 }
 
 async function submitSupply(payload: {
@@ -480,18 +525,23 @@ async function submitSupply(payload: {
   asDraft: boolean
 }) {
   if (!selected.value || !currentUser.value) return
-  await run(async () => {
-    const names = payload.items
-      .map((line) => products.value.find((item) => item.id === line.productId)?.name ?? line.productId)
-      .join(', ')
-    await createRequest(
-      payload.warehouseId,
-      payload.items,
-      payload.note || `Recommandation stock — ${names}`,
-      { priority: payload.priority, status: payload.asDraft ? 'draft' : 'submitted' },
-    )
-    supplyOpen.value = false
-  })
+  try {
+    await run(async () => {
+      const names = payload.items
+        .map((line) => products.value.find((item) => item.id === line.productId)?.name ?? line.productId)
+        .join(', ')
+      await createRequest(
+        payload.warehouseId,
+        payload.items,
+        payload.note || `Recommandation stock — ${names}`,
+        { priority: payload.priority, status: payload.asDraft ? 'draft' : 'submitted' },
+      )
+      supplyOpen.value = false
+      toast.success('Demande d’approvisionnement enregistrée')
+    })
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Création impossible')
+  }
 }
 
 async function saveShippingNote(payload: { id?: string; input: ShippingNoteInput }) {
@@ -630,7 +680,7 @@ const articleOrders = computed(() =>
           :key="row.id"
           class="data-row border-l-2"
           :class="toneBar(row)"
-          @click="selected = row"
+          @click="selectRow(row)"
         >
           <div class="size-9 shrink-0 overflow-hidden rounded-md bg-muted">
             <img v-if="row.imageUrl" :src="row.imageUrl" :alt="row.productName" class="size-full object-cover" />
@@ -782,7 +832,7 @@ const articleOrders = computed(() =>
       :requests="articleRequests"
       :orders="articleOrders"
       @close="closeArticle"
-      @supply="openSupply"
+      @supply="createSupplyFromRecommendation"
       @edit="openEditProduct"
       @move="openMove"
       @receive-order="orderOpen = true"

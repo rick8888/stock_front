@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useAnalytics, useFinance } from '@/composables/useWork'
 import { useStock } from '@/composables/useStock'
 import { useProcurement } from '@/composables/useProcurement'
@@ -12,7 +12,10 @@ import { MOVEMENT_LABEL } from '@/config/stock'
 
 const { snapshot, loading } = useAnalytics()
 const { movements, productName, warehouseName, userName, overview } = useStock()
-const { orderOverviews } = useProcurement()
+const { orderOverviews, loadBoard } = useProcurement({ autoload: false })
+onMounted(() => {
+  void loadBoard({ section: 'orders', filter: 'all', page: 1, pageSize: 50 }, false)
+})
 const { invoices, receipts } = useFinance()
 
 const delayed = computed(() => orderOverviews.value.filter((item) => item.late))

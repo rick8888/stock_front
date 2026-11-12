@@ -1,9 +1,10 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { taskService, alertService, planningService } from '@/services/task.service'
 import { financeService } from '@/services/finance.service'
 import { analyticsService } from '@/services/analytics.service'
 import { receiptService } from '@/services/receipt.service'
 import { adminService } from '@/services/task.service'
+import { emitDataChanged } from '@/utils/events'
 import { useAsyncList } from './useAsyncList'
 import { useCurrentUser } from './useAuth'
 import { usePermissions } from './usePermissions'
@@ -12,8 +13,15 @@ import type { UserInput } from '@/repositories/interfaces'
 
 export function useTasks() {
   const { currentUser } = useCurrentUser()
+  /** Liste déjà filtrée « mes tâches » par l’API / le mock. */
   const list = useAsyncList(() => taskService.list())
-  const mine = computed(() => list.data.value.filter((item) => item.assigneeId === currentUser.value?.id))
+  const board = useAsyncList(async () => {
+    const payload = await taskService.board()
+    return [payload]
+  })
+
+  const mine = computed(() => list.data.value)
+  const boardData = computed(() => board.data.value[0] ?? null)
 
   async function createTask(title: string, dueAt: string, priority: TaskPriority = 'medium', description = '') {
     if (!currentUser.value) throw new Error('Non connecté')
@@ -25,22 +33,28 @@ export function useTasks() {
       status: 'todo',
       priority,
     })
-    await list.refresh(true)
+    await Promise.all([list.refresh(true), board.refresh(true)])
+    emitDataChanged()
   }
 
   async function completeTask(id: string) {
     await taskService.update(id, { status: 'done' })
-    await list.refresh(true)
+    await Promise.all([list.refresh(true), board.refresh(true)])
+    emitDataChanged()
   }
 
   return {
     tasks: list.data,
     mine,
-    loading: list.loading,
-    error: list.error,
+    board: boardData,
+    boardLoading: board.loading,
+    loading: computed(() => list.loading.value || board.loading.value),
+    error: computed(() => list.error.value || board.error.value),
     createTask,
     completeTask,
-    refresh: list.refresh,
+    refresh: async (silent = true) => {
+      await Promise.all([list.refresh(silent), board.refresh(silent)])
+    },
   }
 }
 
@@ -55,8 +69,31 @@ export function useAlerts() {
 }
 
 export function usePlanning() {
-  const list = useAsyncList(() => planningService.list())
-  return { events: list.data, loading: list.loading, error: list.error, refresh: list.refresh }
+  const board = ref<import('@/repositories/interfaces').PlanningBoard | null>(null)
+  const loading = ref(true)
+  const error = ref<string | null>(null)
+  let lastBoardQuery: import('@/repositories/interfaces').PlanningBoardQuery = {}
+
+  async function loadBoard(query: import('@/repositories/interfaces').PlanningBoardQuery = {}, silent = true) {
+    lastBoardQuery = query
+    if (!silent) loading.value = true
+    error.value = null
+    try {
+      board.value = await planningService.board(query)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Une erreur est survenue'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  return {
+    board,
+    loading,
+    error,
+    loadBoard,
+    refresh: (silent = true) => loadBoard(lastBoardQuery, silent),
+  }
 }
 
 export function useFinance() {

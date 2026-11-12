@@ -35,6 +35,26 @@ export function opsToday(): string {
 
 /** Jour figé des seeds mock — ne pas utiliser pour la logique ops runtime. */
 export const DEMO_TODAY = '2026-08-26'
+const DEMO_FROM = '2026-08-20'
+const DEMO_TO = '2026-08-31'
+
+/**
+ * Aligne les dates du jeu démo (20–31 août 2026) sur la semaine courante — miroir de DemoDate PHP.
+ */
+export function rebaseDemoIso(iso: string | null | undefined): string | null | undefined {
+  if (iso == null || iso === '') return iso
+  const key = iso.slice(0, 10)
+  if (key < DEMO_FROM || key > DEMO_TO) return iso
+  const event = new Date(iso)
+  if (Number.isNaN(event.getTime())) return iso
+  const demo = new Date(`${DEMO_TODAY}T12:00:00`)
+  const today = new Date()
+  today.setHours(12, 0, 0, 0)
+  const days = Math.round((today.getTime() - demo.getTime()) / 86_400_000)
+  event.setDate(event.getDate() + days)
+  if (iso.length > 10) return event.toISOString()
+  return todayIso(event)
+}
 
 export function dayKey(iso: string) {
   return iso.slice(0, 10)

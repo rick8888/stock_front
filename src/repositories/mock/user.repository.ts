@@ -30,10 +30,10 @@ function emailFromName(firstName: string, lastName: string) {
 
 function assertCreatableRole(creator: User | undefined, role: RoleKey) {
   if (role === 'SUPER_ADMIN' && creator?.role !== 'SUPER_ADMIN') {
-    throw new Error('Seul Bravo.Stock peut créer ce rôle.')
+    throw new Error('Seul BravoStock peut créer ce rôle.')
   }
   if (role === 'TENANT_OWNER' && creator?.role !== 'SUPER_ADMIN') {
-    throw new Error('Seul Bravo.Stock peut créer un propriétaire d’entreprise.')
+    throw new Error('Seul BravoStock peut créer un propriétaire d’entreprise.')
   }
   if (creator?.role === 'TENANT_OWNER' && role !== 'ADMIN') {
     throw new Error('Le propriétaire ne crée que des administrateurs.')

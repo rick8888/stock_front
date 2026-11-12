@@ -1,95 +1,125 @@
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { procurementService } from '@/services/procurement.service'
 import { purchaseService } from '@/services/purchase.service'
 import { receiptService } from '@/services/receipt.service'
-import { productService } from '@/services/product.service'
-import { warehouseService } from '@/services/warehouse.service'
-import { stockService } from '@/services/stock.service'
-import { userRepository } from '@/repositories'
-import { supplierService } from '@/services/supplier.service'
-import { buildRequestOverviews } from '@/services/request.overview'
-import { buildSourcingOffersFor, isReadyToPurchase } from '@/services/sourcing.service'
-import { buildReceiptOverviews } from '@/services/receipt.overview'
-import { buildOrderOverviews } from '@/services/order.overview'
 import { consultationService } from '@/services/consultation.service'
+import { supplierService } from '@/services/supplier.service'
+import { isReadyToPurchase } from '@/services/sourcing.service'
+import { emitDataChanged } from '@/utils/events'
 import { useAsyncList } from './useAsyncList'
 import { useCurrentUser } from './useAuth'
-import { usePermissions } from './usePermissions'
-import type { ProcurementItem, QuoteFile, RequestPriority } from '@/types'
+import type { ProcurementBoard, ProcurementBoardQuery, SupplierInput } from '@/repositories/interfaces'
+import type { RequestOverview } from '@/services/request.overview'
+import type { OrderOverview } from '@/services/order.overview'
+import type { ReceiptOverview } from '@/services/receipt.overview'
+import type { SourcingOffer } from '@/services/sourcing.service'
+import type { ProcurementItem, Product, QuoteFile, RequestPriority, Supplier, Warehouse } from '@/types'
 
-export function useProcurement() {
+const PAGE_SIZE = 8
+
+export function useProcurement(options: { autoload?: boolean } = {}) {
   const { currentUser } = useCurrentUser()
-  const { scopedWarehouseIds } = usePermissions()
-  const list = useAsyncList(() => procurementService.list())
-  const products = useAsyncList(() => productService.list())
-  const warehouses = useAsyncList(() => warehouseService.list())
-  const users = useAsyncList(() => userRepository.list())
-  const stock = useAsyncList(() => stockService.list())
-  const orders = useAsyncList(() => purchaseService.list())
-  const receipts = useAsyncList(() => receiptService.list())
-  const suppliers = useAsyncList(() => supplierService.list())
-  const consultations = useAsyncList(() => consultationService.list())
+
+  const board = ref<ProcurementBoard | null>(null)
+  const loading = ref(options.autoload !== false)
+  const error = ref<string | null>(null)
+  const sourcingOffers = ref<SourcingOffer[]>([])
+  const sourcingLoading = ref(false)
+  const lastQuery = ref<ProcurementBoardQuery>({
+    section: 'requests',
+    filter: 'all',
+    page: 1,
+    pageSize: PAGE_SIZE,
+  })
+
+  let boardRequestId = 0
+
+  async function loadBoard(query: ProcurementBoardQuery = {}, silent = true) {
+    const requestId = ++boardRequestId
+    lastQuery.value = {
+      section: query.section ?? lastQuery.value.section ?? 'requests',
+      filter: query.filter ?? lastQuery.value.filter ?? 'all',
+      page: query.page ?? lastQuery.value.page ?? 1,
+      pageSize: query.pageSize ?? lastQuery.value.pageSize ?? PAGE_SIZE,
+      focusId: query.focusId,
+    }
+    if (!silent) loading.value = true
+    error.value = null
+    try {
+      const next = await procurementService.board(lastQuery.value)
+      // Ignore une réponse périmée si un autre loadBoard a démarré entre-temps
+      // (ex. deep-link OA → BR pendant le chargement initial commandes).
+      if (requestId !== boardRequestId) return
+      board.value = next
+      if (board.value.page !== lastQuery.value.page) {
+        lastQuery.value.page = board.value.page
+      }
+    } catch (err) {
+      if (requestId !== boardRequestId) return
+      error.value = err instanceof Error ? err.message : 'Une erreur est survenue'
+    } finally {
+      if (requestId === boardRequestId) loading.value = false
+    }
+  }
+
+  if (options.autoload !== false) {
+    onMounted(() => {
+      void loadBoard(lastQuery.value, false)
+    })
+  }
 
   const overviews = computed(() =>
-    buildRequestOverviews({
-      requests: list.data.value,
-      products: products.data.value,
-      warehouses: warehouses.data.value,
-      users: users.data.value,
-      stock: stock.data.value,
-      orders: orders.data.value,
-      receipts: receipts.data.value,
-      consultations: consultations.data.value,
-    }),
+    board.value?.section === 'requests' ? ((board.value.items as RequestOverview[]) ?? []) : [],
   )
+  const orderOverviews = computed(() =>
+    board.value?.section === 'orders' ? ((board.value.items as OrderOverview[]) ?? []) : [],
+  )
+  const receiptOverviews = computed(() =>
+    board.value?.section === 'receipts' ? ((board.value.items as ReceiptOverview[]) ?? []) : [],
+  )
+  const supplierRows = computed(() =>
+    board.value?.section === 'suppliers' ? ((board.value.items as Supplier[]) ?? []) : [],
+  )
+  const counts = computed(() => board.value?.counts ?? {})
+  const readyToPurchase = computed(
+    () => (board.value?.readyToPurchase as RequestOverview[] | undefined) ?? [],
+  )
+  const formOptions = computed(() => board.value?.formOptions)
+  const products = computed(
+    () => (formOptions.value?.products as Product[] | undefined) ?? [],
+  )
+  const warehouses = computed(
+    () => (formOptions.value?.warehouses as Warehouse[] | undefined) ?? [],
+  )
+  const suppliers = computed(() => formOptions.value?.suppliers ?? [])
+  const page = computed(() => board.value?.page ?? 1)
+  const pages = computed(() => board.value?.pages ?? 1)
+  const total = computed(() => board.value?.total ?? 0)
+  const pageSize = computed(() => board.value?.pageSize ?? PAGE_SIZE)
 
-  const orderOverviews = computed(() => {
-    const ids = scopedWarehouseIds()
-    const scoped = ids ? orders.data.value.filter((item) => ids.includes(item.warehouseId)) : orders.data.value
-    return buildOrderOverviews({
-      orders: scoped,
-      products: products.data.value,
-      warehouses: warehouses.data.value,
-      suppliers: suppliers.data.value,
-      receipts: receipts.data.value,
-      requests: list.data.value,
-    })
-  })
+  async function refreshAll() {
+    await loadBoard(lastQuery.value, true)
+    emitDataChanged()
+  }
 
-  const receiptOverviews = computed(() => {
-    const ids = scopedWarehouseIds()
-    const scoped = ids ? receipts.data.value.filter((item) => ids.includes(item.warehouseId)) : receipts.data.value
-    return buildReceiptOverviews({
-      receipts: scoped,
-      orders: orders.data.value,
-      products: products.data.value,
-      warehouses: warehouses.data.value,
-      suppliers: suppliers.data.value,
-      requests: list.data.value,
-    })
-  })
-
-  const counts = computed(() => {
-    const tally = {
-      all: overviews.value.length,
-      submitted: 0,
-      in_review: 0,
-      approved: 0,
-      rejected: 0,
-      ordered: 0,
-      expired: 0,
+  async function loadSourcing(requestIds: string | string[]) {
+    const ids = [...new Set(Array.isArray(requestIds) ? requestIds : [requestIds])].filter(Boolean)
+    if (!ids.length) {
+      sourcingOffers.value = []
+      return []
     }
-    overviews.value.forEach((item) => {
-      const status = item.request.status === 'cancelled' ? 'rejected' : item.request.status
-      if (status === 'submitted') tally.submitted += 1
-      if (status === 'in_review') tally.in_review += 1
-      if (status === 'approved') tally.approved += 1
-      if (status === 'rejected') tally.rejected += 1
-      if (status === 'ordered' || status === 'closed') tally.ordered += 1
-      if (status === 'expired') tally.expired += 1
-    })
-    return tally
-  })
+    sourcingLoading.value = true
+    try {
+      const result = await procurementService.sourcing(ids)
+      sourcingOffers.value = result.offers
+      return result.offers
+    } catch (err) {
+      sourcingOffers.value = []
+      throw err
+    } finally {
+      sourcingLoading.value = false
+    }
+  }
 
   async function createRequest(
     warehouseId: string,
@@ -107,34 +137,23 @@ export function useProcurement() {
       service: extras?.service ?? currentUser.value.title,
       status: extras?.status ?? 'submitted',
     })
-    await list.refresh(true)
+    await refreshAll()
   }
 
   async function approveRequest(id: string) {
     await procurementService.approve(id)
-    await list.refresh(true)
+    await refreshAll()
   }
 
   async function takeCharge(id: string) {
     await procurementService.takeCharge(id)
-    await list.refresh(true)
+    await refreshAll()
   }
 
   async function issueFromRequest(id: string) {
     if (!currentUser.value) throw new Error('Non connecté')
     await procurementService.issueFromRequest(id, currentUser.value.id)
-    await list.refresh(true)
-    await stock.refresh(true)
-  }
-
-  async function refreshAll() {
-    await Promise.all([
-      list.refresh(true),
-      orders.refresh(true),
-      receipts.refresh(true),
-      stock.refresh(true),
-      consultations.refresh(true),
-    ])
+    await refreshAll()
   }
 
   async function createOrderFromOffer(requestIds: string | string[], supplierId: string) {
@@ -144,8 +163,7 @@ export function useProcurement() {
 
   async function launchConsultation(requestIds: string[], supplierIds: string[], note?: string) {
     await consultationService.launch(requestIds, supplierIds, note)
-    await consultations.refresh(true)
-    await list.refresh(true)
+    await refreshAll()
   }
 
   async function awardQuote(consultationId: string, quoteId: string) {
@@ -155,14 +173,12 @@ export function useProcurement() {
 
   async function cancelConsultation(id: string) {
     await consultationService.cancel(id)
-    await consultations.refresh(true)
-    await list.refresh(true)
+    await refreshAll()
   }
 
   async function attachQuoteFile(consultationId: string, quoteId: string, file: QuoteFile) {
     await consultationService.attachFile(consultationId, quoteId, file)
-    await consultations.refresh(true)
-    await list.refresh(true)
+    await refreshAll()
   }
 
   async function validateReceipt(
@@ -177,56 +193,69 @@ export function useProcurement() {
 
   async function confirmOrder(id: string) {
     await purchaseService.updateStatus(id, 'confirmed')
-    await orders.refresh(true)
+    await refreshAll()
   }
 
   async function ensureOrderReceipt(orderId: string) {
-    const order = orders.data.value.find((item) => item.id === orderId)
+    const fromBoard = orderOverviews.value.find((item) => item.order.id === orderId)?.order
+    const order = fromBoard ?? (await purchaseService.list()).find((item) => item.id === orderId)
     if (!order) throw new Error('Commande introuvable')
     await receiptService.createFromOrder(order)
     await refreshAll()
   }
 
-  function sourcingFor(requestIds: string | string[]) {
-    const ids = Array.isArray(requestIds) ? requestIds : [requestIds]
-    const selected = ids
-      .map((id) => overviews.value.find((item) => item.request.id === id))
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
-    return buildSourcingOffersFor(selected, products.data.value, suppliers.data.value)
-  }
-
   function groupableWith(requestId: string) {
-    const current = overviews.value.find((item) => item.request.id === requestId)
+    const current =
+      overviews.value.find((item) => item.request.id === requestId) ??
+      readyToPurchase.value.find((item) => item.request.id === requestId)
     if (!current || !isReadyToPurchase(current, currentUser.value?.id)) return []
-    return overviews.value.filter(
+    return readyToPurchase.value.filter(
       (item) =>
-        item.request.id !== requestId &&
-        item.request.warehouseId === current.request.warehouseId &&
-        isReadyToPurchase(item, currentUser.value?.id),
+        item.request.id !== requestId && item.request.warehouseId === current.request.warehouseId,
     )
   }
 
   async function rejectRequest(id: string) {
     await procurementService.reject(id)
-    await list.refresh(true)
+    await refreshAll()
   }
 
   async function requestChanges(id: string) {
     await procurementService.requestChanges(id)
-    await list.refresh(true)
+    await refreshAll()
   }
 
-  const loading = computed(() => list.loading.value || products.loading.value || orders.loading.value)
+  async function createSupplier(input: SupplierInput) {
+    await supplierService.create(input)
+    await refreshAll()
+  }
+
+  async function updateSupplier(id: string, input: Partial<SupplierInput>) {
+    await supplierService.update(id, input)
+    await refreshAll()
+  }
 
   return {
-    requests: list.data,
+    board,
     overviews,
     orderOverviews,
     receiptOverviews,
-    orders: orders.data,
+    supplierRows,
     counts,
-    loading,
-    error: list.error,
+    readyToPurchase,
+    page,
+    pages,
+    total,
+    pageSize,
+    products,
+    warehouses,
+    suppliers,
+    sourcingOffers,
+    sourcingLoading,
+    loading: computed(() => loading.value),
+    error,
+    loadBoard,
+    loadSourcing,
     createRequest,
     approveRequest,
     takeCharge,
@@ -239,13 +268,13 @@ export function useProcurement() {
     confirmOrder,
     ensureOrderReceipt,
     validateReceipt,
-    sourcingFor,
     groupableWith,
-    isReadyToPurchase: (overview: Parameters<typeof isReadyToPurchase>[0]) =>
-      isReadyToPurchase(overview, currentUser.value?.id),
+    isReadyToPurchase: (overview: RequestOverview) => isReadyToPurchase(overview, currentUser.value?.id),
     rejectRequest,
     requestChanges,
-    refresh: list.refresh,
+    createSupplier,
+    updateSupplier,
+    refresh: () => loadBoard(lastQuery.value, true),
   }
 }
 

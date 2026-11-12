@@ -24,10 +24,20 @@ export class MockReplenishmentRepository implements ReplenishmentRepository {
     return withLatency(() => this.build(warehouseId))
   }
 
-  private build(warehouseId?: string): ReplenishmentSuggestion[] {
+  simulate(warehouseId: string, options?: { serviceLevel?: number; leadTimeDays?: number }) {
+    return withLatency(() => this.build(warehouseId, options?.serviceLevel, options?.leadTimeDays))
+  }
+
+  private build(
+    warehouseId?: string,
+    serviceLevel?: number,
+    leadTimeOverride?: number,
+  ): ReplenishmentSuggestion[] {
     const data = db()
     const products = new Map(data.products.map((item) => [item.id, item]))
     const suppliers = new Map(data.suppliers.map((item) => [item.id, item]))
+    // Approximation hors ligne : on scale le seuil par rapport à 95 %.
+    const coverageFactor = serviceLevel == null ? 1 : Math.max(0.75, serviceLevel / 0.95)
 
     return data.stock
       .filter((row) => row.enabled !== false && (!warehouseId || row.warehouseId === warehouseId))
@@ -36,7 +46,7 @@ export class MockReplenishmentRepository implements ReplenishmentRepository {
         if (!product || product.archived) return null
 
         const supplier = product.supplierId ? suppliers.get(product.supplierId) : undefined
-        const leadTimeDays = supplier?.leadTimeDays ?? DEFAULT_LEAD_TIME_DAYS
+        const leadTimeDays = leadTimeOverride ?? supplier?.leadTimeDays ?? DEFAULT_LEAD_TIME_DAYS
         const avgDailyDemand = product.dailyDemand || 0
         const available = Math.max(0, row.quantity - (row.reserved || 0))
         const inTransit = this.incoming(row.productId, row.warehouseId)
@@ -44,9 +54,9 @@ export class MockReplenishmentRepository implements ReplenishmentRepository {
 
         // Sans historique, l'écart-type est inconnu : le seuil manuel tient lieu
         // de stock de sécurité, comme le fait le moteur en l'absence de données.
-        const safetyStock = product.minStock ?? 0
+        const safetyStock = Math.ceil((product.minStock ?? 0) * coverageFactor)
         const reorderPoint = Math.max(Math.ceil(avgDailyDemand * leadTimeDays) + safetyStock, safetyStock)
-        const targetLevel = Math.max(reorderPoint + Math.ceil(avgDailyDemand * REVIEW_PERIOD_DAYS), reorderPoint)
+        const targetLevel = Math.max(reorderPoint + Math.ceil(avgDailyDemand * REVIEW_PERIOD_DAYS * coverageFactor), reorderPoint)
 
         const netPosition = available + inTransit - pendingNeed
         const rawQuantity = Math.max(0, targetLevel - netPosition)
@@ -66,7 +76,7 @@ export class MockReplenishmentRepository implements ReplenishmentRepository {
           demandStdDev: 0,
           leadTimeDays,
           leadTimeStdDev: 0,
-          serviceLevel: null,
+          serviceLevel: serviceLevel ?? null,
           safetyStock,
           reorderPoint,
           targetLevel,
@@ -84,6 +94,12 @@ export class MockReplenishmentRepository implements ReplenishmentRepository {
           reasons: [
             'Estimation hors ligne : ni historique de sorties ni conditions fournisseur',
             `Point de commande ${reorderPoint} = demande ${avgDailyDemand}/j × délai ${leadTimeDays} j + seuil ${safetyStock}`,
+            ...(serviceLevel != null
+              ? [`Simulation niveau de service ${(serviceLevel * 100).toFixed(0)} % (non enregistrée)`]
+              : []),
+            ...(leadTimeOverride != null
+              ? [`Simulation délai fournisseur ${leadTimeOverride} j (non enregistrée)`]
+              : []),
             ...(coverDays !== null ? [`Couverture actuelle : ${coverDays} jours`] : []),
             ...(pendingNeed > 0 ? [`Demandes validées à servir : ${pendingNeed}`] : []),
             ...(inTransit > 0 ? [`Déjà commandé : ${inTransit}`] : []),

@@ -103,14 +103,14 @@ export const roles: Role[] = [
     id: 'role-super',
     key: 'SUPER_ADMIN',
     name: 'Super administrateur',
-    description: 'Propriétaire Bravo.Stock : entreprises, plans, abonnements, facturation.',
+    description: 'Propriétaire BravoStock : entreprises, plans, abonnements, facturation.',
     permissions: ROLE_PERMISSIONS.SUPER_ADMIN,
   },
   {
     id: 'role-owner',
     key: 'TENANT_OWNER',
     name: 'Propriétaire',
-    description: 'Compte entreprise : administrateurs, abonnement, factures Bravo.Stock.',
+    description: 'Compte entreprise : administrateurs, abonnement, factures BravoStock.',
     permissions: ROLE_PERMISSIONS.TENANT_OWNER,
   },
   {

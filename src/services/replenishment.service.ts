@@ -8,6 +8,10 @@ export const replenishmentService = {
   compute: (warehouseId: string, refreshDemand = false) =>
     replenishmentRepository.compute(warehouseId, refreshDemand),
 
+  /** Simulation sans écriture — serviceLevel / leadTimeDays optionnels. */
+  simulate: (warehouseId: string, options?: { serviceLevel?: number; leadTimeDays?: number }) =>
+    replenishmentRepository.simulate(warehouseId, options),
+
   /** Recalcule plusieurs entrepôts et renvoie l'ensemble des propositions. */
   async computeMany(warehouseIds: string[], refreshDemand = false): Promise<ReplenishmentSuggestion[]> {
     const batches = await Promise.all(

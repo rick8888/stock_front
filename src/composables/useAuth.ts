@@ -37,7 +37,7 @@ export function useAuth() {
     error.value = null
     try {
       await authService.logout()
-      await router.push('/login')
+      await router.push('/accueil')
     } finally {
       loading.value = false
     }

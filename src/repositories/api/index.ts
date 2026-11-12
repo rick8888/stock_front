@@ -125,6 +125,9 @@ export class ApiStockRepository implements StockRepository {
   list(): Promise<StockItem[]> {
     return httpClient.request('/stock')
   }
+  overview(): Promise<import('@/repositories/interfaces').StockOverviewBoard> {
+    return httpClient.request('/stock/overview')
+  }
   movements(): Promise<StockMovement[]> {
     return httpClient.request('/stock/movements')
   }
@@ -242,6 +245,22 @@ export class ApiProcurementRepository implements ProcurementRepository {
   list(): Promise<ProcurementRequest[]> {
     return httpClient.request('/procurement')
   }
+  board(query: import('@/repositories/interfaces').ProcurementBoardQuery = {}) {
+    const params = new URLSearchParams()
+    if (query.section) params.set('section', query.section)
+    if (query.filter) params.set('filter', query.filter)
+    if (query.page != null) params.set('page', String(query.page))
+    if (query.pageSize != null) params.set('pageSize', String(query.pageSize))
+    if (query.focusId) params.set('focusId', query.focusId)
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return httpClient.request(`/procurement/board${suffix}`)
+  }
+  sourcing(requestIds: string[]) {
+    const params = new URLSearchParams()
+    if (requestIds.length) params.set('ids', requestIds.join(','))
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return httpClient.request(`/procurement/sourcing${suffix}`)
+  }
   create(
     input: Omit<ProcurementRequest, 'id' | 'createdAt' | 'status'> & { status?: ProcurementRequest['status'] },
   ): Promise<ProcurementRequest> {
@@ -258,6 +277,12 @@ export class ApiPurchaseRepository implements PurchaseRepository {
   }
   create(input: Omit<PurchaseOrder, 'id' | 'createdAt'>): Promise<PurchaseOrder> {
     return httpClient.request('/purchases', { method: 'POST', body: JSON.stringify(input) })
+  }
+  createFromOffer(requestIds: string[], supplierId: string): Promise<PurchaseOrder> {
+    return httpClient.request('/purchases/from-offer', {
+      method: 'POST',
+      body: JSON.stringify({ requestIds, supplierId }),
+    })
   }
   updateStatus(id: string, status: PurchaseOrder['status']): Promise<PurchaseOrder> {
     return httpClient.request(`/purchases/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
@@ -314,6 +339,16 @@ export class ApiDeliveryRepository implements DeliveryRepository {
 }
 
 export class ApiLogisticsRepository implements LogisticsRepository {
+  board(query: import('@/repositories/interfaces').LogisticsBoardQuery = {}) {
+    const params = new URLSearchParams()
+    if (query.section) params.set('section', query.section)
+    if (query.filter) params.set('filter', query.filter)
+    if (query.page != null) params.set('page', String(query.page))
+    if (query.pageSize != null) params.set('pageSize', String(query.pageSize))
+    if (query.focusId) params.set('focusId', query.focusId)
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return httpClient.request(`/logistics/board${suffix}`)
+  }
   shipments(): Promise<Shipment[]> {
     return httpClient.request('/shipments')
   }
@@ -358,6 +393,9 @@ export class ApiLogisticsRepository implements LogisticsRepository {
   }
   updateDriver(id: string, input: Partial<DriverInput>): Promise<Driver> {
     return httpClient.request(`/drivers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+  }
+  assistRoute(input: import('@/repositories/interfaces').RouteAssistInput) {
+    return httpClient.request('/routes/assist', { method: 'POST', body: JSON.stringify(input) })
   }
   createRoute(input: RouteInput): Promise<Route> {
     return httpClient.request('/routes', { method: 'POST', body: JSON.stringify(input) })
@@ -415,6 +453,9 @@ export class ApiFinanceRepository implements FinanceRepository {
 export class ApiTaskRepository implements TaskRepository {
   list(): Promise<Task[]> {
     return httpClient.request('/tasks')
+  }
+  board(): Promise<import('@/repositories/interfaces').TaskBoard> {
+    return httpClient.request('/tasks/board')
   }
   create(input: Omit<Task, 'id'>): Promise<Task> {
     return httpClient.request('/tasks', { method: 'POST', body: JSON.stringify(input) })
@@ -567,6 +608,18 @@ export class ApiAlertRepository implements AlertRepository {
   }
 }
 
+export class ApiNotificationRepository implements import('@/repositories/interfaces').NotificationRepository {
+  list(): Promise<import('@/types').AppNotification[]> {
+    return httpClient.request('/notifications')
+  }
+  markRead(id: string): Promise<void> {
+    return httpClient.request(`/notifications/${id}/read`, { method: 'POST' })
+  }
+  markAllRead(): Promise<{ marked: number }> {
+    return httpClient.request('/notifications/read-all', { method: 'POST' })
+  }
+}
+
 export class ApiPlanningRepository implements PlanningRepository {
   list(from?: string, to?: string): Promise<PlanningEvent[]> {
     const query = new URLSearchParams()
@@ -574,6 +627,15 @@ export class ApiPlanningRepository implements PlanningRepository {
     if (to) query.set('to', to)
     const suffix = query.toString() ? `?${query.toString()}` : ''
     return httpClient.request(`/planning${suffix}`)
+  }
+
+  board(query: import('@/repositories/interfaces').PlanningBoardQuery = {}) {
+    const params = new URLSearchParams()
+    if (query.weekOffset != null) params.set('weekOffset', String(query.weekOffset))
+    if (query.day) params.set('day', query.day)
+    if (query.type) params.set('type', query.type)
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return httpClient.request(`/planning/board${suffix}`)
   }
 }
 
@@ -617,6 +679,19 @@ export class ApiReplenishmentRepository implements ReplenishmentRepository {
     return httpClient.request('/replenishment/compute', {
       method: 'POST',
       body: JSON.stringify({ warehouseId, refreshDemand }),
+    })
+  }
+  simulate(
+    warehouseId: string,
+    options?: { serviceLevel?: number; leadTimeDays?: number },
+  ): Promise<ReplenishmentSuggestion[]> {
+    return httpClient.request('/replenishment/simulate', {
+      method: 'POST',
+      body: JSON.stringify({
+        warehouseId,
+        ...(options?.serviceLevel != null ? { serviceLevel: options.serviceLevel } : {}),
+        ...(options?.leadTimeDays != null ? { leadTimeDays: options.leadTimeDays } : {}),
+      }),
     })
   }
 }

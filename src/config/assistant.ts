@@ -14,11 +14,35 @@ const starters: Record<string, AssistantStarter> = {
     label: 'Priorités du jour',
     detail: 'Ce qui peut encore changer la journée.',
   },
+  alerts: {
+    id: 'alerts',
+    prompt: 'Quelles alertes sont ouvertes ?',
+    label: 'Alertes ouvertes',
+    detail: 'CTA métier non lus.',
+  },
   stock: {
     id: 'stock',
     prompt: 'Quels produits vont être en rupture ?',
     label: 'Risques de rupture',
     detail: 'Le stock qui ne tiendra pas.',
+  },
+  replenish: {
+    id: 'replenish',
+    prompt: 'Quelles suggestions de réappro ?',
+    label: 'Suggestions réappro',
+    detail: 'Moteur règles · quantité & risque.',
+  },
+  receipts: {
+    id: 'receipts',
+    prompt: 'Quelles réceptions sont en attente ?',
+    label: 'BR en attente',
+    detail: 'Réceptions et OA en retard.',
+  },
+  lots: {
+    id: 'lots',
+    prompt: 'Lots bientôt périmés ?',
+    label: 'DLC proches',
+    detail: 'Lots à échéance ≤ 14 j.',
   },
   orders: {
     id: 'orders',
@@ -32,35 +56,85 @@ const starters: Record<string, AssistantStarter> = {
     label: 'Livraisons à risque',
     detail: 'Tournées sous tension.',
   },
+  routesLive: {
+    id: 'routesLive',
+    prompt: 'Quelles tournées sont en cours ?',
+    label: 'Tournées live',
+    detail: 'Planifiées et en cours.',
+  },
+  tasks: {
+    id: 'tasks',
+    prompt: 'Quelles tâches sont ouvertes ?',
+    label: 'Tâches ouvertes',
+    detail: 'Kanban ops à traiter.',
+  },
   suppliers: {
     id: 'suppliers',
-    prompt: 'Analyse mes fournisseurs.',
-    label: 'Fournisseurs',
-    detail: 'Fiabilité et retards.',
+    prompt: 'Qui scorent le mieux ?',
+    label: 'Score fournisseurs',
+    detail: 'Fiabilité dynamique + ponctualité OA.',
+  },
+  sourcing: {
+    id: 'sourcing',
+    prompt: 'Que commander en priorité ?',
+    label: 'Reco sourcing',
+    detail: 'Référence interne sans devis.',
+  },
+  routeAssist: {
+    id: 'routeAssist',
+    prompt: 'Propose ordre et flotte pour la tournée.',
+    label: 'Ordre & flotte',
+    detail: 'Classement arrêts + chauffeur / véhicule.',
   },
 }
 
 export function assistantStarters(role?: RoleKey): AssistantStarter[] {
-  if (role === 'FINANCE') return [starters.attention, starters.orders]
-  if (role === 'DISPATCHER' || role === 'DRIVER') return [starters.attention, starters.delivery]
-  if (role === 'WAREHOUSE_MANAGER') return [starters.attention, starters.stock]
-  if (role === 'PROCUREMENT') return [starters.attention, starters.stock, starters.orders, starters.suppliers]
-  return [starters.attention, starters.stock, starters.delivery]
+  if (role === 'FINANCE') return [starters.attention, starters.alerts, starters.orders]
+  if (role === 'DISPATCHER') {
+    return [starters.attention, starters.alerts, starters.delivery, starters.routesLive, starters.routeAssist]
+  }
+  if (role === 'DRIVER') return [starters.attention, starters.delivery, starters.routesLive]
+  if (role === 'WAREHOUSE_MANAGER') {
+    return [starters.attention, starters.alerts, starters.receipts, starters.lots, starters.stock, starters.replenish]
+  }
+  if (role === 'PROCUREMENT') {
+    return [
+      starters.attention,
+      starters.alerts,
+      starters.stock,
+      starters.replenish,
+      starters.orders,
+      starters.receipts,
+      starters.suppliers,
+      starters.sourcing,
+    ]
+  }
+  return [
+    starters.attention,
+    starters.alerts,
+    starters.stock,
+    starters.replenish,
+    starters.tasks,
+    starters.delivery,
+    starters.routeAssist,
+  ]
 }
 
 export function assistantPlaceholder(role?: RoleKey) {
-  if (role === 'WAREHOUSE_MANAGER') return 'Une réception, un risque de stock…'
-  if (role === 'PROCUREMENT') return 'Une rupture, un retard fournisseur…'
-  if (role === 'FINANCE') return 'Une facture, un budget…'
-  if (role === 'DISPATCHER' || role === 'DRIVER') return 'Une tournée, un retard…'
-  return 'Demandez ce qui se passe, ou ce qu’il faut faire…'
+  if (role === 'WAREHOUSE_MANAGER') return 'Une réception, une DLC, un risque de stock…'
+  if (role === 'PROCUREMENT') return 'Une rupture, une réappro, un score fournisseur…'
+  if (role === 'FINANCE') return 'Une facture, un budget, une alerte…'
+  if (role === 'DISPATCHER') return 'Une tournée live, un ordre & flotte…'
+  if (role === 'DRIVER') return 'Une tournée, un retard…'
+  return 'Alertes, réappro, BR, tournées, tâches…'
 }
 
 export function assistantPageDescription(role?: RoleKey) {
-  if (role === 'WAREHOUSE_MANAGER') return 'Stock, réceptions, sorties — je m’appuie sur vos entrepôts.'
-  if (role === 'PROCUREMENT') return 'Ruptures, devis, commandes — je prépare l’action ensuite.'
-  if (role === 'FINANCE') return 'Échéances et engagements, sans le bruit opérationnel.'
-  if (role === 'DISPATCHER') return 'Tournées et incidents, pour débloquer un créneau.'
-  if (role === 'DRIVER') return 'Votre tournée du jour, en une question.'
-  return 'Posez une question. Je m’appuie sur votre activité réelle.'
+  const disclaimer = 'Règles ops sur vos données — pas un copilote IA génératif.'
+  if (role === 'WAREHOUSE_MANAGER') return `Stock, BR, DLC, réappro. ${disclaimer}`
+  if (role === 'PROCUREMENT') return `Ruptures, réappro, devis, commandes. ${disclaimer}`
+  if (role === 'FINANCE') return `Échéances et engagements. ${disclaimer}`
+  if (role === 'DISPATCHER') return `Tournées live et incidents. ${disclaimer}`
+  if (role === 'DRIVER') return `Votre tournée du jour. ${disclaimer}`
+  return `Posez une question sur l’activité. ${disclaimer}`
 }

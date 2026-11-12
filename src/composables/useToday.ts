@@ -13,7 +13,7 @@ export function useToday() {
     if (!currentUser.value) return
     if (!silent) loading.value = true
     try {
-      brief.value = await todayService.brief(currentUser.value)
+      brief.value = await todayService.brief()
       error.value = null
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Impossible de charger la journée'

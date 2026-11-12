@@ -1,6 +1,7 @@
 import { apiConfig } from '@/config/api'
 import type {
   AlertRepository,
+  NotificationRepository,
   AuthRepository,
   DeliveryRepository,
   FinanceRepository,
@@ -26,6 +27,7 @@ import type {
   AnalyticsRepository,
   WarehouseLocationRepository,
   StockPlacementRepository,
+  TodayRepository,
 } from '@/repositories/interfaces'
 import { MockProductRepository } from '@/repositories/mock/product.repository'
 import { MockWarehouseRepository } from '@/repositories/mock/warehouse.repository'
@@ -40,7 +42,11 @@ import { MockReceiptRepository } from '@/repositories/mock/receipt.repository'
 import { MockDeliveryRepository } from '@/repositories/mock/delivery.repository'
 import { MockLogisticsRepository } from '@/repositories/mock/logistics.repository'
 import { MockTaskRepository } from '@/repositories/mock/task.repository'
-import { MockAlertRepository, MockPlanningRepository } from '@/repositories/mock/alert.repository'
+import {
+  MockAlertRepository,
+  MockNotificationRepository,
+  MockPlanningRepository,
+} from '@/repositories/mock/alert.repository'
 import { MockFinanceRepository } from '@/repositories/mock/finance.repository'
 import { MockAuthRepository, MockRoleRepository, MockUserRepository } from '@/repositories/mock/user.repository'
 import { MockPlatformRepository } from '@/repositories/mock/platform.repository'
@@ -50,8 +56,11 @@ import { MockReplenishmentRepository } from '@/repositories/mock/replenishment.r
 import { MockAnalyticsRepository } from '@/repositories/mock/analytics.repository'
 import { MockWarehouseLocationRepository } from '@/repositories/mock/location.repository'
 import { MockStockPlacementRepository } from '@/repositories/mock/placement.repository'
+import { MockTodayRepository } from '@/repositories/mock/today.repository'
+import { ApiTodayRepository } from '@/repositories/api/today.repository'
 import {
   ApiAlertRepository,
+  ApiNotificationRepository,
   ApiAnalyticsRepository,
   ApiAuthRepository,
   ApiConsultationRepository,
@@ -107,6 +116,9 @@ export const logisticsRepository: LogisticsRepository = useApi
   : new MockLogisticsRepository()
 export const taskRepository: TaskRepository = useApi ? new ApiTaskRepository() : new MockTaskRepository()
 export const alertRepository: AlertRepository = useApi ? new ApiAlertRepository() : new MockAlertRepository()
+export const notificationRepository: NotificationRepository = useApi
+  ? new ApiNotificationRepository()
+  : new MockNotificationRepository()
 export const planningRepository: PlanningRepository = useApi ? new ApiPlanningRepository() : new MockPlanningRepository()
 export const financeRepository: FinanceRepository = useApi ? new ApiFinanceRepository() : new MockFinanceRepository()
 export const userRepository: UserRepository = useApi ? new ApiUserRepository() : new MockUserRepository()
@@ -127,3 +139,4 @@ export const locationRepository: WarehouseLocationRepository = useApi
 export const placementRepository: StockPlacementRepository = useApi
   ? new ApiStockPlacementRepository()
   : new MockStockPlacementRepository()
+export const todayRepository: TodayRepository = useApi ? new ApiTodayRepository() : new MockTodayRepository()

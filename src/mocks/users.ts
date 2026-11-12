@@ -8,7 +8,7 @@ export const users: User[] = [
     email: 'super@bravo.stock',
     password: 'demo',
     role: 'SUPER_ADMIN',
-    title: 'Propriétaire Bravo.Stock',
+    title: 'Propriétaire BravoStock',
     avatarHue: 250,
     warehouseIds: [],
     productIds: [],

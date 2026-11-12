@@ -26,7 +26,8 @@ export const stockLots: StockLot[] = [
     productId: 'prd-lait',
     warehouseId: 'wh-casa',
     lotCode: 'LAI-0826',
-    expiryDate: '2026-09-20',
+    // Dans la fenêtre démo (20–31 août) → rebase vers « dans 4 j » pour l’alerte DLC.
+    expiryDate: '2026-08-30',
     locationId: 'loc-casa-a0102',
     quantity: 120,
     companyId: 'co-atlas',

@@ -1,13 +1,58 @@
 import type { ProcurementRequest } from '@/types'
-import type { ProcurementRepository } from '@/repositories/interfaces'
+import type { ProcurementBoardQuery, ProcurementRepository } from '@/repositories/interfaces'
 import { uid } from '@/utils/helpers'
 import { db, mutate, withLatency } from './db'
 import { requestCode } from '@/lib/utils'
 import { ALERT_ROLES } from '@/config/alerts'
+import { buildProcurementBoard } from '@/services/procurement.board'
+import { buildSourcingOffersFor } from '@/services/sourcing.service'
+import type { RequestOverview } from '@/services/request.overview'
+import { useAuthStore } from '@/stores/auth'
 
 export class MockProcurementRepository implements ProcurementRepository {
   list() {
     return withLatency(() => db().procurementRequests)
+  }
+
+  board(query: ProcurementBoardQuery = {}) {
+    return withLatency(() => {
+      const user = useAuthStore().currentUser
+      return buildProcurementBoard(db(), query, {
+        warehouseIds: user?.warehouseIds?.length ? user.warehouseIds : undefined,
+        userId: user?.id,
+      })
+    })
+  }
+
+  sourcing(requestIds: string[]) {
+    return withLatency(() => {
+      const user = useAuthStore().currentUser
+      const board = buildProcurementBoard(
+        db(),
+        { section: 'requests', filter: 'all', page: 1, pageSize: 50 },
+        {
+          warehouseIds: user?.warehouseIds?.length ? user.warehouseIds : undefined,
+          userId: user?.id,
+        },
+      )
+      const pool = [
+        ...((board.items as RequestOverview[]) ?? []),
+        ...((board.readyToPurchase as RequestOverview[]) ?? []),
+      ]
+      const selected = requestIds
+        .map((id) => pool.find((item) => item.request.id === id))
+        .filter((item): item is RequestOverview => Boolean(item))
+      return {
+        requestIds,
+        offers: buildSourcingOffersFor(
+          selected,
+          db().products,
+          db().suppliers,
+          undefined,
+          db().purchaseOrders,
+        ),
+      }
+    })
   }
 
   create(input: Omit<ProcurementRequest, 'id' | 'createdAt' | 'status'> & { status?: ProcurementRequest['status'] }) {

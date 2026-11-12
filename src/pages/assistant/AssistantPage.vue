@@ -1,6 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Inbox, Package, RotateCcw, ShoppingCart, Truck, Users } from 'lucide-vue-next'
+import {
+  Bell,
+  ClipboardList,
+  Inbox,
+  Package,
+  Route,
+  RotateCcw,
+  ShoppingCart,
+  Sparkles,
+  Timer,
+  Truck,
+  Users,
+  Warehouse,
+} from 'lucide-vue-next'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 import { useAssistant } from '@/composables/useAssistant'
 import { useCurrentUser } from '@/composables/useAuth'
@@ -19,14 +32,22 @@ const { currentUser } = useCurrentUser()
 const started = computed(() => messages.value.some((item) => item.role === 'user'))
 const starters = computed(() => assistantStarters(currentUser.value?.role))
 const greeting = computed(() =>
-  currentUser.value?.firstName ? `Bonjour ${currentUser.value.firstName}` : 'Assistant Bravo.Stock',
+  currentUser.value?.firstName ? `Bonjour ${currentUser.value.firstName}` : 'Assistant BravoStock',
 )
 
 function iconFor(starter: AssistantStarter) {
+  if (starter.id === 'alerts') return Bell
   if (starter.id === 'stock') return Package
+  if (starter.id === 'replenish') return Warehouse
+  if (starter.id === 'receipts') return ClipboardList
+  if (starter.id === 'lots') return Timer
   if (starter.id === 'orders') return ShoppingCart
   if (starter.id === 'delivery') return Truck
+  if (starter.id === 'routesLive') return Truck
+  if (starter.id === 'tasks') return ClipboardList
   if (starter.id === 'suppliers') return Users
+  if (starter.id === 'sourcing') return Sparkles
+  if (starter.id === 'routeAssist') return Route
   return Inbox
 }
 </script>
@@ -41,6 +62,10 @@ function iconFor(starter: AssistantStarter) {
         </Button>
       </template>
     </PageHeader>
+
+    <p class="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-900 dark:text-amber-100">
+      Assistant à règles métier (mots-clés + données ops). Ce n’est pas une IA générative.
+    </p>
 
     <div
       v-if="!started && starters.length"
@@ -66,7 +91,7 @@ function iconFor(starter: AssistantStarter) {
           B
         </span>
         <div>
-          <p class="text-[13px] font-semibold tracking-tight">Bravo.Stock</p>
+          <p class="text-[13px] font-semibold tracking-tight">BravoStock</p>
           <p class="text-[11px] text-muted-foreground">S’appuie sur votre stock, vos commandes, vos tournées.</p>
         </div>
       </div>

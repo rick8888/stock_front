@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { MessageCircle } from 'lucide-vue-next'
 import Sheet from '@/components/ui/Sheet.vue'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -10,6 +11,7 @@ import { orderEtaLabel } from '@/services/order.overview'
 import type { OrderOverview } from '@/services/order.overview'
 import OfficialDocument from '@/components/documents/OfficialDocument.vue'
 import DocumentShareBar from '@/components/documents/DocumentShareBar.vue'
+import WhatsAppShareSheet from '@/components/documents/WhatsAppShareSheet.vue'
 import { useIssuer } from '@/composables/useIssuer'
 import { documentWhatsAppMessage } from '@/utils/documents'
 
@@ -22,6 +24,7 @@ const emit = defineEmits<{
 }>()
 const { can } = usePermissions()
 const { issuer } = useIssuer()
+const chaseOpen = ref(false)
 
 const canConfirm = computed(
   () => can('purchase.create') && props.overview?.order.status === 'sent',
@@ -32,6 +35,12 @@ const canReceive = computed(
     Boolean(props.overview) &&
     ['sent', 'confirmed', 'partial', 'delayed'].includes(props.overview!.order.status) &&
     props.overview?.linkedReceipt?.status !== 'validated',
+)
+const canChase = computed(
+  () =>
+    Boolean(props.overview?.late || props.overview?.order.status === 'delayed') &&
+    Boolean(props.overview?.supplierPhone) &&
+    can('purchase.view'),
 )
 
 function stepClass(state: string) {
@@ -69,6 +78,22 @@ const oaMessage = computed(() => {
       `Livraison prévue : ${formatDate(item.order.expectedDate)}`,
       ...item.lines.map((line) => `• ${line.productName} × ${line.quantity} ${line.unit}`),
       `Total : ${formatMoney(item.order.amount)}`,
+    ],
+  })
+})
+
+const chaseMessage = computed(() => {
+  const item = props.overview
+  if (!item) return ''
+  return documentWhatsAppMessage({
+    title: 'Relance livraison',
+    code: item.code,
+    issuer: issuer.value.name,
+    lines: [
+      `Bonjour ${item.supplierName},`,
+      `Nous relançons la commande ${item.code} prévue le ${formatDate(item.order.expectedDate)}.`,
+      ...item.lines.map((line) => `• ${line.productName} × ${line.quantity} ${line.unit}`),
+      `Merci de confirmer la date de livraison à ${item.warehouseName}.`,
     ],
   })
 })
@@ -189,11 +214,27 @@ const oaMessage = computed(() => {
     </div>
     <template #footer>
       <div class="space-y-2">
+        <Button v-if="canChase" class="w-full" variant="default" @click="chaseOpen = true">
+          <MessageCircle class="size-3.5" />
+          Relancer le fournisseur
+        </Button>
         <DocumentShareBar :filename="overview?.code ?? 'OA'" :message="oaMessage" :contacts="oaContacts" />
         <Button v-if="canConfirm" class="w-full" @click="emit('confirm')">Marquer comme confirmée</Button>
-        <Button v-if="canReceive" class="w-full" :variant="canConfirm ? 'outline' : 'default'" @click="emit('receive')">
+        <Button
+          v-if="canReceive"
+          class="w-full"
+          :variant="canChase || canConfirm ? 'outline' : 'default'"
+          @click="emit('receive')"
+        >
           Réceptionner
         </Button>
+        <WhatsAppShareSheet
+          :open="chaseOpen"
+          :contacts="oaContacts"
+          :message="chaseMessage"
+          :filename="overview?.code ?? 'OA'"
+          @close="chaseOpen = false"
+        />
       </div>
     </template>
   </Sheet>

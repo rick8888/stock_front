@@ -17,6 +17,8 @@ function mergeItems(items: ProcurementItem[]): ProcurementItem[] {
 
 export const procurementService = {
   list: () => procurementRepository.list(),
+  board: (query?: import('@/repositories/interfaces').ProcurementBoardQuery) => procurementRepository.board(query),
+  sourcing: (requestIds: string[]) => procurementRepository.sourcing(requestIds),
   create: (input: Omit<ProcurementRequest, 'id' | 'createdAt' | 'status'> & { status?: ProcurementRequest['status'] }) => {
     const items = mergeItems(input.items)
     if (!items.length) throw new Error('Ajoutez au moins un article')

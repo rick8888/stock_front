@@ -36,7 +36,7 @@ const demos = users.filter(
 )
 
 function companyLabel(user: (typeof users)[number]) {
-  if (user.role === 'SUPER_ADMIN') return 'Plateforme Bravo.Stock'
+  if (user.role === 'SUPER_ADMIN') return 'Plateforme BravoStock'
   return companies.find((item) => item.id === user.companyId)?.name ?? 'Sans entreprise'
 }
 
@@ -64,6 +64,9 @@ const selectedDemo = computed(
       </form>
       <p class="mt-4 text-center text-[13px]">
         <RouterLink to="/forgot-password" class="text-muted-foreground hover:text-foreground">Mot de passe oublié</RouterLink>
+      </p>
+      <p class="mt-2 text-center text-[13px]">
+        <RouterLink to="/accueil" class="text-muted-foreground hover:text-foreground">Découvrir BravoStock</RouterLink>
       </p>
     </Card>
 

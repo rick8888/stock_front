@@ -71,32 +71,42 @@ function suggestionsFor(role?: RoleKey): string[] {
   if (role === 'FINANCE') {
     return [
       'Qu’est-ce qui nécessite mon attention aujourd’hui ?',
+      'Quelles alertes sont ouvertes ?',
       'Quelles commandes sont en retard ?',
     ]
   }
-  if (role === 'DISPATCHER' || role === 'DRIVER') {
+  if (role === 'DISPATCHER') {
     return [
       'Qu’est-ce qui nécessite mon attention aujourd’hui ?',
+      'Quelles tournées sont en cours ?',
+      'Propose ordre et flotte pour la tournée.',
+    ]
+  }
+  if (role === 'DRIVER') {
+    return [
+      'Qu’est-ce qui nécessite mon attention aujourd’hui ?',
+      'Quelles tournées sont en cours ?',
       'Quelles livraisons présentent un risque ?',
     ]
   }
   if (role === 'WAREHOUSE_MANAGER') {
     return [
-      'Qu’est-ce qui nécessite mon attention aujourd’hui ?',
-      'Quels produits vont être en rupture ?',
+      'Quelles alertes sont ouvertes ?',
+      'Quelles réceptions sont en attente ?',
+      'Lots bientôt périmés ?',
     ]
   }
   if (role === 'PROCUREMENT') {
     return [
-      'Quels produits vont être en rupture ?',
-      'Quelles commandes sont en retard ?',
-      'Analyse mes fournisseurs.',
+      'Quelles suggestions de réappro ?',
+      'Qui scorent le mieux ?',
+      'Que commander en priorité ?',
     ]
   }
   return [
     'Qu’est-ce qui nécessite mon attention aujourd’hui ?',
-    'Quels produits vont être en rupture ?',
-    'Quelles livraisons présentent un risque ?',
+    'Quelles alertes sont ouvertes ?',
+    'Quelles suggestions de réappro ?',
   ]
 }
 

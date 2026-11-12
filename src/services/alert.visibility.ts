@@ -33,20 +33,52 @@ export function alertVisibleTo(alert: Alert, user: User): boolean {
 
 export function alertHref(alert: Alert, role: RoleKey): string {
   if (role === 'DRIVER') return '/driver/today'
+  const related = alert.relatedId ?? ''
   if (alert.domain === 'stock') {
-    if (alert.relatedId?.startsWith('rcp')) return '/procurement?tab=receipts'
-    return '/stock'
+    if (related.startsWith('rcp') || related.startsWith('rcpt')) {
+      return `/procurement?tab=receipts&receipt=${related}`
+    }
+    const warehouse = alert.warehouseId ? `&warehouse=${alert.warehouseId}` : ''
+    if (alert.action === 'replenish' && related && !related.startsWith('stk')) {
+      return `/analytics/forecasts?product=${related}${warehouse}&action=da`
+    }
+    if (related.startsWith('stk') || related.includes(':')) {
+      return '/stock'
+    }
+    return related ? `/stock?article=${related}${warehouse}` : '/stock'
   }
   if (alert.domain === 'procurement') {
-    if (alert.relatedId?.startsWith('po')) return '/procurement?tab=orders'
+    if (related.startsWith('po') || related.startsWith('ord')) {
+      const suffix = alert.action === 'receive' ? '&action=receive' : ''
+      return `/procurement?tab=orders&order=${related}${suffix}`
+    }
+    if (related.startsWith('pr') || related.startsWith('da')) {
+      return `/procurement?request=${related}`
+    }
     return '/procurement'
   }
   if (alert.domain === 'logistics') {
-    if (alert.relatedId?.startsWith('bl')) return '/logistics?tab=notes'
+    if (related.startsWith('bl') || related.startsWith('sn')) {
+      return `/logistics?tab=notes&note=${related}`
+    }
+    if (related.startsWith('dlv') || related.startsWith('del')) {
+      return `/logistics?tab=deliveries&delivery=${related}`
+    }
+    if (related.startsWith('rt')) {
+      return `/logistics?tab=routes&route=${related}`
+    }
     return '/logistics'
   }
   if (alert.domain === 'finance') return '/finance'
   return '/tasks'
+}
+
+export function alertActionLabel(alert: Alert): string {
+  if (alert.action === 'replenish') return 'Créer la DA'
+  if (alert.action === 'receive') return 'Ouvrir le BR'
+  if (alert.action === 'stock') return 'Voir le stock'
+  if (alert.action === 'dispatch') return 'Voir la livraison'
+  return 'Traiter'
 }
 
 export function alertsDescription(role?: RoleKey): string {

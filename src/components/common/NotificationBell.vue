@@ -1,25 +1,53 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Bell } from 'lucide-vue-next'
-import { useDataStore } from '@/stores/data'
-import { useCurrentUser } from '@/composables/useAuth'
+import { notificationService } from '@/services/notification.service'
 import Button from '@/components/ui/Button.vue'
+import type { AppNotification } from '@/types'
 
-const store = useDataStore()
-const { currentUser } = useCurrentUser()
 const open = ref(false)
-const items = computed(() =>
-  store.db.notifications.filter((item) => !item.userId || item.userId === currentUser.value?.id),
-)
+const loading = ref(false)
+const items = ref<AppNotification[]>([])
 const unread = computed(() => items.value.filter((item) => !item.read).length)
 
-function markAll() {
-  items.value.forEach((item) => {
-    item.read = true
-  })
-  store.persist()
+async function refresh(silent = true) {
+  if (!silent) loading.value = true
+  try {
+    items.value = await notificationService.list()
+  } catch {
+    if (!silent) items.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+async function markAll() {
+  await notificationService.markAllRead()
+  items.value = items.value.map((item) => ({ ...item, read: true }))
   open.value = false
 }
+
+async function markOne(id: string) {
+  const row = items.value.find((item) => item.id === id)
+  if (!row || row.read) return
+  await notificationService.markRead(id)
+  row.read = true
+}
+
+watch(open, (value) => {
+  if (value) void refresh(true)
+})
+
+let timer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  void refresh(false)
+  timer = setInterval(() => {
+    if (!open.value) void refresh(true)
+  }, 45_000)
+})
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+})
 </script>
 
 <template>
@@ -38,11 +66,14 @@ function markAll() {
         <p class="text-[13px] font-medium">Notifications</p>
         <button class="text-[11px] text-muted-foreground hover:text-foreground" @click="markAll">Tout lire</button>
       </div>
+      <p v-if="loading && !items.length" class="px-2 py-3 text-[12px] text-muted-foreground">Chargement…</p>
+      <p v-else-if="!items.length" class="px-2 py-3 text-[12px] text-muted-foreground">Aucune notification.</p>
       <button
-        v-for="item in items.slice(0, 6)"
+        v-for="item in items.slice(0, 8)"
         :key="item.id"
         class="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
         :class="item.read ? 'opacity-60' : ''"
+        @click="markOne(item.id)"
       >
         <p class="text-[13px] font-medium">{{ item.title }}</p>
         <p class="mt-0.5 text-[11px] text-muted-foreground">{{ item.message }}</p>

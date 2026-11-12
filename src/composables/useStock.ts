@@ -1,70 +1,71 @@
-import { computed } from 'vue'
-import { stockService, buildStockRows, recommendStock } from '@/services/stock.service'
+import { computed, onMounted, ref } from 'vue'
+import { stockService, recommendStock } from '@/services/stock.service'
 import { purchaseService } from '@/services/purchase.service'
 import { procurementService } from '@/services/procurement.service'
-import { supplierService } from '@/services/supplier.service'
 import { productService } from '@/services/product.service'
 import { warehouseService } from '@/services/warehouse.service'
 import { receiptService } from '@/services/receipt.service'
 import { userRepository } from '@/repositories'
+import { emitDataChanged } from '@/utils/events'
 import { useAsyncList } from './useAsyncList'
 import { usePermissions } from './usePermissions'
 import { useCurrentUser } from './useAuth'
 import { downloadCsv } from '@/utils/csv'
 import { MOVEMENT_LABEL } from '@/config/stock'
-import { useDataStore } from '@/stores/data'
-import { opsToday } from '@/utils/helpers'
-import type { StockHealth, StockMovementType, StockOverviewRow } from '@/types'
+import type { StockOverviewBoard } from '@/repositories/interfaces'
+import type { StockMovementType, StockOverviewRow } from '@/types'
 
 export function useStock() {
   const { scopedWarehouseIds, inScopeWarehouse } = usePermissions()
   const { currentUser } = useCurrentUser()
-  const store = useDataStore()
-  const { data: stock, loading, error, refresh } = useAsyncList(() => stockService.list())
+
+  const board = ref<StockOverviewBoard | null>(null)
+  const boardLoading = ref(true)
+  const boardError = ref<string | null>(null)
+
   const movements = useAsyncList(() => stockService.movements())
   const inventories = useAsyncList(() => stockService.inventories())
   const products = useAsyncList(() => productService.list())
   const warehouses = useAsyncList(() => warehouseService.list())
   const orders = useAsyncList(() => purchaseService.list())
   const requests = useAsyncList(() => procurementService.list())
-  const suppliers = useAsyncList(() => supplierService.list())
   const receipts = useAsyncList(() => receiptService.list())
   const users = useAsyncList(() => userRepository.list())
 
-  const scopedStock = computed(() => {
-    const ids = scopedWarehouseIds()
-    if (!ids) return stock.value
-    return stock.value.filter((row) => ids.includes(row.warehouseId))
+  async function loadOverview(silent = false) {
+    if (!silent) boardLoading.value = true
+    boardError.value = null
+    try {
+      board.value = await stockService.overview()
+    } catch (err) {
+      boardError.value = err instanceof Error ? err.message : 'Une erreur est survenue'
+    } finally {
+      boardLoading.value = false
+    }
+  }
+
+  onMounted(() => {
+    void loadOverview()
   })
+
+  const overview = computed(() => board.value?.rows ?? [])
+  const counts = computed(
+    () =>
+      board.value?.counts ?? {
+        all: 0,
+        critical: 0,
+        watch: 0,
+        on_order: 0,
+        normal: 0,
+      },
+  )
+  const closedWarehouseIds = computed(() => new Set(board.value?.closedWarehouseIds ?? []))
+  const boardToday = computed(() => board.value?.today)
 
   const scopedWarehouses = computed(() => {
     const ids = scopedWarehouseIds()
     if (!ids) return warehouses.data.value
     return warehouses.data.value.filter((item) => ids.includes(item.id))
-  })
-
-  const overview = computed(() =>
-    buildStockRows({
-      stock: scopedStock.value,
-      products: products.data.value.filter((item) => !item.archived),
-      warehouses: warehouses.data.value,
-      orders: orders.data.value,
-      suppliers: suppliers.data.value,
-    }),
-  )
-
-  const counts = computed(() => {
-    const tally: Record<StockHealth | 'all', number> = {
-      all: overview.value.length,
-      critical: 0,
-      watch: 0,
-      on_order: 0,
-      normal: 0,
-    }
-    overview.value.forEach((row) => {
-      tally[row.status] += 1
-    })
-    return tally
   })
 
   const scopedMovements = computed(() => {
@@ -88,8 +89,7 @@ export function useStock() {
   const pendingReceipts = computed(() => {
     const ids = scopedWarehouseIds()
     return receipts.data.value.filter(
-      (item) =>
-        item.status !== 'validated' && (!ids || ids.includes(item.warehouseId)),
+      (item) => item.status !== 'validated' && (!ids || ids.includes(item.warehouseId)),
     )
   })
 
@@ -134,12 +134,14 @@ export function useStock() {
 
   async function refreshAll(silent = true) {
     await Promise.all([
-      refresh(silent),
+      loadOverview(silent),
       movements.refresh(silent),
       inventories.refresh(silent),
       receipts.refresh(silent),
       orders.refresh(silent),
+      requests.refresh(silent),
     ])
+    emitDataChanged()
   }
 
   async function receiveStock(productId: string, warehouseId: string, quantity: number, note = 'Réception', reference?: string) {
@@ -168,7 +170,7 @@ export function useStock() {
 
   async function toggleAssignment(productId: string, warehouseId: string, enabled: boolean) {
     await stockService.toggleAssignment(productId, warehouseId, enabled)
-    await refresh(true)
+    await loadOverview(true)
   }
 
   async function startInventory(warehouseId: string, scope?: import('@/types').InventoryScope) {
@@ -213,10 +215,7 @@ export function useStock() {
     return receipts.data.value.find((item) => item.purchaseOrderId === orderId) ?? null
   }
 
-  function exportMovements(
-    list = scopedMovements.value,
-    name = 'mouvements-stock',
-  ) {
+  function exportMovements(list = scopedMovements.value, name = 'mouvements-stock') {
     downloadCsv(
       name,
       ['Date', 'Type', 'Article', 'Quantité', 'De', 'Vers', 'Par', 'Note', 'Référence'],
@@ -237,20 +236,17 @@ export function useStock() {
   async function closeDay(warehouseId: string) {
     if (!currentUser.value || !inScopeWarehouse(warehouseId)) throw new Error('Périmètre insuffisant')
     await stockService.closeDay(warehouseId, currentUser.value.id)
-    store.persist()
+    await refreshAll()
   }
 
   function isClosed(warehouseId: string) {
-    const stamp = `${warehouseId}|${opsToday()}`
-    return store.db.auditLogs.some((item) => item.action === 'Clôture de journée' && item.entityId === stamp)
+    return closedWarehouseIds.value.has(warehouseId)
   }
 
-  const loadingAll = computed(
-    () => loading.value || products.loading.value || warehouses.loading.value || orders.loading.value,
-  )
+  const loadingAll = computed(() => boardLoading.value || warehouses.loading.value)
 
   return {
-    stock: scopedStock,
+    stock: computed(() => overview.value),
     overview,
     counts,
     movements: scopedMovements,
@@ -263,7 +259,8 @@ export function useStock() {
     pendingReceipts,
     users: users.data,
     loading: loadingAll,
-    error,
+    error: boardError,
+    boardToday,
     recommendationFor,
     movementsFor,
     requestsFor,

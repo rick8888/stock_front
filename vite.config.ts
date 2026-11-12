@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['aria-layout-logiciel.png', 'pwa-192.png', 'pwa-512.png'],
       manifest: {
-        name: 'Bravo.Stock',
-        short_name: 'Bravo.Stock',
+        name: 'BravoStock',
+        short_name: 'BravoStock',
         description: 'Assistant opérationnel magasin & chauffeur',
         theme_color: '#f5f6f8',
         background_color: '#f5f6f8',

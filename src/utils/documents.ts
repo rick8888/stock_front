@@ -119,7 +119,7 @@ function pdfLines(doc: OfficialDocPayload): PdfLine[] {
     }
   }
   rows.push({ text: '', size: 12 })
-  rows.push({ text: 'Document Bravo.Stock — pièce officielle.', size: 8 })
+  rows.push({ text: 'Document BravoStock — pièce officielle.', size: 8 })
   return rows
 }
 
@@ -159,8 +159,8 @@ export async function shareOfficialPdf(input: { phone: string; message: string; 
 export function issuerBlock(company?: Company | null) {
   if (!company) {
     return {
-      name: 'Bravo.Stock',
-      legalName: 'Bravo.Stock',
+      name: 'BravoStock',
+      legalName: 'BravoStock',
       ice: '',
       city: '',
       email: '',

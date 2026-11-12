@@ -10,68 +10,37 @@ import EmptyState from '@/components/feedback/EmptyState.vue'
 import ErrorState from '@/components/feedback/ErrorState.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { formatTime } from '@/lib/utils'
-import { addDays, dateKey, dayKey, startOfWeek, todayIso } from '@/utils/helpers'
+import { addDays, opsToday } from '@/utils/helpers'
 import type { PlanningEvent } from '@/types'
 
-const { events, loading, error } = usePlanning()
+const { board, loading, error, loadBoard } = usePlanning()
 const { currentUser } = useCurrentUser()
 const router = useRouter()
 
-const today = todayIso()
 const weekOffset = ref(0)
-const selectedDay = ref(today)
+const selectedDay = ref(opsToday())
 const typeFilter = ref<'all' | PlanningEvent['type']>('all')
 
-const visible = computed(() => {
-  const role = currentUser.value?.role
-  const list = [...events.value].sort((a, b) => a.date.localeCompare(b.date))
-  if (role === 'DRIVER') return list.filter((item) => item.type === 'delivery')
-  if (role === 'FINANCE') return list.filter((item) => item.type === 'meeting' || item.type === 'receipt')
-  if (role === 'DISPATCHER') return list.filter((item) => item.type === 'delivery' || item.type === 'task')
-  if (role === 'PROCUREMENT') return list.filter((item) => item.type !== 'inventory')
-  return list
-})
-
-const weekStart = computed(() => addDays(startOfWeek(new Date()), weekOffset.value * 7))
-
-const weekDays = computed(() =>
-  Array.from({ length: 7 }, (_, index) => {
-    const date = addDays(weekStart.value, index)
-    const key = dateKey(date)
-    const items = visible.value.filter((item) => dayKey(item.date) === key)
-    return { key, date, count: items.length, isToday: key === today }
-  }),
+watch(
+  [weekOffset, selectedDay, typeFilter],
+  ([offset, day, type]) => {
+    void loadBoard({ weekOffset: offset, day, type }, true)
+  },
+  { immediate: true },
 )
 
-watch(weekOffset, () => {
-  const keys = weekDays.value.map((day) => day.key)
-  if (keys.includes(selectedDay.value)) return
-  selectedDay.value = weekDays.value.find((day) => day.isToday)?.key ?? keys[0] ?? today
-})
-
-const filtered = computed(() =>
-  visible.value.filter((item) => typeFilter.value === 'all' || item.type === typeFilter.value),
+watch(
+  () => board.value?.selectedDay,
+  (day) => {
+    if (day && day !== selectedDay.value) selectedDay.value = day
+  },
 )
 
-const dayEvents = computed(() =>
-  filtered.value.filter((item) => dayKey(item.date) === selectedDay.value),
-)
-
-const upcoming = computed(() =>
-  filtered.value.filter((item) => dayKey(item.date) >= today).slice(0, 6),
-)
-
-const todayCount = computed(() => visible.value.filter((item) => dayKey(item.date) === today).length)
-const weekCount = computed(() => weekDays.value.reduce((sum, day) => sum + day.count, 0))
-const nextCount = computed(() => visible.value.filter((item) => dayKey(item.date) > today).length)
-
-const weekLabel = computed(() => {
-  const start = weekDays.value[0]?.date
-  const end = weekDays.value[6]?.date
-  if (!start || !end) return ''
-  const fmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' })
-  return `${fmt.format(start)} – ${fmt.format(end)}`
-})
+const counts = computed(() => board.value?.counts ?? { today: 0, week: 0, next: 0 })
+const weekDays = computed(() => board.value?.weekDays ?? [])
+const dayEvents = computed(() => board.value?.dayEvents ?? [])
+const upcoming = computed(() => board.value?.upcoming ?? [])
+const today = computed(() => board.value?.today ?? opsToday())
 
 const typeMeta: Record<
   PlanningEvent['type'],
@@ -84,25 +53,30 @@ const typeMeta: Record<
   task: { label: 'Tâche', icon: CalendarDays, badge: 'outline', wrap: 'bg-muted text-muted-foreground' },
 }
 
-const typeChips = computed(() => {
-  const types = (Object.keys(typeMeta) as PlanningEvent['type'][]).filter((type) =>
-    visible.value.some((item) => item.type === type),
-  )
-  return [
-    { id: 'all' as const, label: 'Tout', count: visible.value.length },
-    ...types.map((type) => ({
-      id: type,
-      label: typeMeta[type].label,
-      count: visible.value.filter((item) => item.type === type).length,
-    })),
-  ]
+const typeChips = computed(() =>
+  (board.value?.types ?? []).map((item) => ({
+    id: item.id as 'all' | PlanningEvent['type'],
+    label: item.id === 'all' ? 'Tout' : typeMeta[item.id as PlanningEvent['type']]?.label ?? item.id,
+    count: item.count,
+  })),
+)
+
+const weekLabel = computed(() => {
+  const keys = weekDays.value
+  if (keys.length < 2) return ''
+  const start = new Date(`${keys[0].key}T12:00:00`)
+  const end = new Date(`${keys[keys.length - 1].key}T12:00:00`)
+  const fmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' })
+  return `${fmt.format(start)} – ${fmt.format(end)}`
 })
 
 const selectedLabel = computed(() => {
   const day = weekDays.value.find((item) => item.key === selectedDay.value)
   if (!day) return ''
   if (day.isToday) return 'Aujourd’hui'
-  return new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }).format(day.date)
+  return new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }).format(
+    new Date(`${day.key}T12:00:00`),
+  )
 })
 
 const pageDescription = computed(() => {
@@ -115,25 +89,31 @@ const pageDescription = computed(() => {
   return 'Les rendez-vous qui structurent les prochains jours.'
 })
 
-function dayName(date: Date) {
-  return new Intl.DateTimeFormat('fr-FR', { weekday: 'short' }).format(date).replace('.', '')
+function dayName(key: string) {
+  return new Intl.DateTimeFormat('fr-FR', { weekday: 'short' }).format(new Date(`${key}T12:00:00`)).replace('.', '')
 }
 
-function dayNumber(date: Date) {
-  return date.getDate()
+function dayNumber(key: string) {
+  return Number(key.slice(8, 10))
 }
 
 function goThisWeek() {
   weekOffset.value = 0
-  selectedDay.value = today
+  selectedDay.value = today.value
 }
 
 function selectEventDay(iso: string) {
-  const key = dayKey(iso)
+  const key = iso.slice(0, 10)
   selectedDay.value = key
-  const eventMonday = startOfWeek(new Date(`${key}T12:00:00`))
-  const thisMonday = startOfWeek(new Date())
-  weekOffset.value = Math.round((eventMonday.getTime() - thisMonday.getTime()) / (7 * 86_400_000))
+  const eventMonday = startOfWeekKey(key)
+  const thisMonday = startOfWeekKey(today.value)
+  weekOffset.value = Math.round((Date.parse(`${eventMonday}T12:00:00`) - Date.parse(`${thisMonday}T12:00:00`)) / (7 * 86_400_000))
+}
+
+function startOfWeekKey(key: string) {
+  const date = new Date(`${key}T12:00:00`)
+  const weekday = date.getDay() || 7
+  return addDays(date, 1 - weekday).toISOString().slice(0, 10)
 }
 
 function hrefFor(event: PlanningEvent) {
@@ -150,7 +130,7 @@ function hrefFor(event: PlanningEvent) {
 }
 
 function isNow(event: PlanningEvent) {
-  if (dayKey(event.date) !== today) return false
+  if (event.date.slice(0, 10) !== today.value) return false
   const eventMs = new Date(event.date).getTime()
   if (Number.isNaN(eventMs)) return false
   return Math.abs(Date.now() - eventMs) <= 90 * 60 * 1000
@@ -160,23 +140,23 @@ function isNow(event: PlanningEvent) {
 <template>
   <div class="page-wide">
     <PageHeader title="Planning" :description="pageDescription" />
-    <PageSkeleton v-if="loading" />
+    <PageSkeleton v-if="loading && !board" />
     <ErrorState v-else-if="error" :message="error" />
-    <template v-else>
+    <template v-else-if="board">
       <div class="mb-5 grid gap-3 sm:grid-cols-3">
         <article class="surface border-l-4 border-l-primary p-4">
           <p class="text-[13px] font-medium text-muted-foreground">Aujourd’hui</p>
-          <p class="mt-2 text-2xl font-semibold tracking-tight">{{ todayCount }}</p>
+          <p class="mt-2 text-2xl font-semibold tracking-tight">{{ counts.today }}</p>
           <p class="mt-1 text-xs text-muted-foreground">Rendez-vous dans la journée</p>
         </article>
         <article class="surface border-l-4 border-l-amber-500 p-4">
           <p class="text-[13px] font-medium text-amber-800">Cette semaine</p>
-          <p class="mt-2 text-2xl font-semibold tracking-tight text-amber-800">{{ weekCount }}</p>
+          <p class="mt-2 text-2xl font-semibold tracking-tight text-amber-800">{{ counts.week }}</p>
           <p class="mt-1 text-xs text-amber-800/70">Du lundi au dimanche</p>
         </article>
         <article class="surface border-l-4 border-l-blue-500 p-4">
           <p class="text-[13px] font-medium text-blue-700">À venir</p>
-          <p class="mt-2 text-2xl font-semibold tracking-tight text-blue-700">{{ nextCount }}</p>
+          <p class="mt-2 text-2xl font-semibold tracking-tight text-blue-700">{{ counts.next }}</p>
           <p class="mt-1 text-xs text-blue-700/70">Après aujourd’hui</p>
         </article>
       </div>
@@ -224,8 +204,8 @@ function isNow(event: PlanningEvent) {
           "
           @click="selectedDay = day.key"
         >
-          <p class="text-[11px] font-medium uppercase tracking-wide opacity-80">{{ dayName(day.date) }}</p>
-          <p class="mt-1 text-lg font-semibold tabular-nums">{{ dayNumber(day.date) }}</p>
+          <p class="text-[11px] font-medium uppercase tracking-wide opacity-80">{{ dayName(day.key) }}</p>
+          <p class="mt-1 text-lg font-semibold tabular-nums">{{ dayNumber(day.key) }}</p>
           <span
             class="mt-1.5 inline-flex h-1.5 items-center justify-center gap-0.5"
             :class="selectedDay === day.key ? 'text-primary-foreground' : 'text-primary'"
@@ -309,7 +289,7 @@ function isNow(event: PlanningEvent) {
               >
                 <div class="w-12 shrink-0 pt-0.5 text-right">
                   <p class="text-[11px] font-medium uppercase text-muted-foreground">
-                    {{ dayName(new Date(event.date)) }}
+                    {{ dayName(event.date.slice(0, 10)) }}
                   </p>
                   <p class="text-sm font-semibold tabular-nums">{{ formatTime(event.date) }}</p>
                 </div>

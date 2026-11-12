@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router'
+import { RouterLink, RouterView } from 'vue-router'
 import ThemeToggle from '@/components/common/ThemeToggle.vue'
 </script>
 
@@ -10,15 +10,15 @@ import ThemeToggle from '@/components/common/ThemeToggle.vue'
       <ThemeToggle />
     </div>
     <div class="relative w-full max-w-sm">
-      <div class="mb-7 flex flex-col items-center gap-2.5">
+      <RouterLink to="/accueil" class="mb-7 flex flex-col items-center gap-2.5 text-inherit no-underline">
         <div class="flex size-9 items-center justify-center rounded-md bg-button text-xs font-semibold text-button-foreground">
           B
         </div>
         <div class="text-center">
-          <p class="text-base font-semibold tracking-tight">Bravo.Stock</p>
+          <p class="text-base font-semibold tracking-tight">BravoStock</p>
           <p class="mt-1 text-[13px] text-muted-foreground">Votre journée opérationnelle</p>
         </div>
-      </div>
+      </RouterLink>
       <RouterView />
     </div>
   </div>

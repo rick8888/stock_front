@@ -2,12 +2,14 @@ import type { Driver, Route, Shipment, ShippingNote, Vehicle } from '@/types'
 import type {
   DriverInput,
   LogisticsRepository,
+  RouteAssistInput,
   RouteInput,
   ShipmentInput,
   ShippingNoteCarrierInput,
   ShippingNoteInput,
   VehicleInput,
 } from '@/repositories/interfaces'
+import { buildRouteAssist } from '@/services/route.assist'
 import { carriers as carrierCatalog } from '@/mocks/carriers'
 import { bookTrackingNumber, getCarrier } from '@/services/carriers.service'
 import { uid, opsToday } from '@/utils/helpers'
@@ -26,6 +28,9 @@ import {
   syncRouteStops,
   type LogisticsBuildCtx,
 } from '@/services/logistics.build'
+import { buildLogisticsBoard } from '@/services/logistics.board'
+import { useAuthStore } from '@/stores/auth'
+import type { LogisticsBoardQuery } from '@/repositories/interfaces'
 
 function ctx(): LogisticsBuildCtx {
   return {
@@ -117,6 +122,15 @@ function assignVehicle(driverId: string | undefined, vehicleId: string | undefin
 }
 
 export class MockLogisticsRepository implements LogisticsRepository {
+  board(query: LogisticsBoardQuery = {}) {
+    return withLatency(() => {
+      const user = useAuthStore().currentUser
+      return buildLogisticsBoard(db(), query, {
+        warehouseIds: user?.warehouseIds?.length ? user.warehouseIds : undefined,
+      })
+    })
+  }
+
   shipments() {
     return withLatency(() => db().shipments)
   }
@@ -307,6 +321,24 @@ export class MockLogisticsRepository implements LogisticsRepository {
       if ('vehicleId' in input) assignVehicle(driver.id, input.vehicleId || undefined)
       return driver
     })
+  }
+
+  assistRoute(input: RouteAssistInput) {
+    return withLatency(() =>
+      buildRouteAssist({
+        warehouseId: input.warehouseId,
+        date: input.date,
+        stops: input.stops,
+        driverId: input.driverId,
+        vehicleId: input.vehicleId,
+        warehouses: db().warehouses,
+        shippingNotes: db().shippingNotes ?? [],
+        drivers: db().drivers,
+        vehicles: db().vehicles,
+        routes: db().routes,
+        users: db().users,
+      }),
+    )
   }
 
   createRoute(input: RouteInput) {

@@ -1,5 +1,6 @@
-import type { Product, Supplier, SupplierProduct } from '@/types'
+import type { Product, PurchaseOrder, Supplier, SupplierProduct } from '@/types'
 import type { RequestLineView, RequestOverview } from './request.overview'
+import { DEMO_TODAY } from '@/utils/helpers'
 
 const PRICE_FACTOR: Record<string, number> = {
   'sup-atlas': 1,
@@ -13,7 +14,11 @@ export interface SourcingOffer {
   supplierId: string
   supplierName: string
   city: string
+  /** Score dynamique 0–100 (ponctualité observée + fiabilité déclarée). */
   reliability: number
+  declaredReliability?: number
+  onTimeRate?: number | null
+  orderSampleSize?: number
   leadTimeDays: number
   unitPrice: number
   amount: number
@@ -22,6 +27,45 @@ export interface SourcingOffer {
   recommended: boolean
   score: number
   reasons: string[]
+}
+
+export function scoreSupplier(supplier: Supplier, orders: PurchaseOrder[] = []) {
+  const declared = Math.max(0, Math.min(100, supplier.reliability ?? 80))
+  let received = 0
+  let late = 0
+  for (const order of orders) {
+    if (order.supplierId !== supplier.id) continue
+    const status = order.status
+    if (status === 'cancelled' || status === 'draft') continue
+    if (status === 'received') {
+      received++
+      continue
+    }
+    if (status === 'delayed') {
+      late++
+      continue
+    }
+    const expected = (order.expectedDate ?? '').slice(0, 10)
+    if (expected && expected < DEMO_TODAY) late++
+  }
+  const sample = received + late
+  if (!sample) {
+    return {
+      reliability: declared,
+      declaredReliability: declared,
+      onTimeRate: null as number | null,
+      orderSampleSize: 0,
+      reasons: [`Fiabilité déclarée ${declared}% (pas encore d’historique OA)`],
+    }
+  }
+  const onTimeRate = Math.round((received / sample) * 100)
+  const reliability = Math.round(declared * 0.4 + onTimeRate * 0.6)
+  const reasons = [
+    `Fiabilité dynamique ${reliability}% (déclarée ${declared}%)`,
+    `Ponctualité observée ${onTimeRate}% · ${received}/${sample} OA à l’heure`,
+  ]
+  if (late > 0) reasons.push(`${late} commande(s) en retard dans l’historique`)
+  return { reliability, declaredReliability: declared, onTimeRate, orderSampleSize: sample, reasons }
 }
 
 export function supplierPriceFactor(supplierId: string) {
@@ -93,10 +137,11 @@ export function buildSourcingOffersFor(
   products: Product[],
   suppliers: Supplier[],
   catalog?: SupplierProduct[],
+  orders?: PurchaseOrder[],
 ): SourcingOffer[] {
   const merged = mergeOverviewsForSourcing(overviews)
   if (!merged) return []
-  return buildSourcingOffers({ overview: merged, products, suppliers, catalog })
+  return buildSourcingOffers({ overview: merged, products, suppliers, catalog, orders })
 }
 
 export function isReadyToPurchase(overview: RequestOverview, userId?: string) {
@@ -116,19 +161,26 @@ export function buildSourcingOffers(input: {
   products: Product[]
   suppliers: Supplier[]
   catalog?: SupplierProduct[]
+  orders?: PurchaseOrder[]
 }): SourcingOffer[] {
   const needed = input.overview.lines
     .map((line) => ({ line, quantity: quantityToOrder(line) }))
     .filter((item) => item.quantity > 0)
   if (!needed.length) return []
   const terms = keyPurchaseTerms(input.catalog ?? [])
+  const orders = input.orders ?? []
 
   const preferredIds = needed
     .map((item) => input.products.find((product) => product.id === item.line.productId)?.supplierId)
     .filter((id): id is string => Boolean(id))
   const preferredId = preferredIds[0]
   const active = input.suppliers.filter((item) => item.status === 'active')
-  const ranked = [...active].sort((a, b) => b.reliability - a.reliability || a.leadTimeDays - b.leadTimeDays)
+  const performance = new Map(active.map((item) => [item.id, scoreSupplier(item, orders)]))
+  const ranked = [...active].sort((a, b) => {
+    const sa = performance.get(a.id)?.reliability ?? a.reliability
+    const sb = performance.get(b.id)?.reliability ?? b.reliability
+    return sb - sa || a.leadTimeDays - b.leadTimeDays
+  })
   const picked: Supplier[] = []
   const preferred = active.find((item) => item.id === preferredId)
   if (preferred) picked.push(preferred)
@@ -139,6 +191,7 @@ export function buildSourcingOffers(input: {
 
   const offers = picked.map((supplier) => {
     const factor = supplierPriceFactor(supplier.id)
+    const perf = performance.get(supplier.id) ?? scoreSupplier(supplier, orders)
     // Minimum de commande et colisage diffèrent d'un fournisseur à l'autre :
     // la quantité comparée doit être celle qu'il faudrait réellement commander.
     const lines = needed.map((item) => ({
@@ -150,7 +203,7 @@ export function buildSourcingOffers(input: {
     const unitPrice = quantity ? amount / quantity : 0
     const reasons: string[] = []
     if (supplier.id === preferredId) reasons.push('Fournisseur habituel de l’article')
-    reasons.push(`Fiabilité ${supplier.reliability}%`)
+    reasons.push(...perf.reasons)
     reasons.push(`Délai annoncé ${supplier.leadTimeDays} j`)
     const adjusted = lines.filter(
       (item) => item.quantity !== needed.find((row) => row.line.productId === item.line.productId)?.quantity,
@@ -159,14 +212,17 @@ export function buildSourcingOffers(input: {
       reasons.push(`Quantité ajustée au minimum/colisage sur ${adjusted.length} article(s)`)
     }
     const score =
-      supplier.reliability * 0.5 +
+      perf.reliability * 0.5 +
       Math.max(0, 10 - supplier.leadTimeDays) * 4 +
       Math.max(0, 1.15 - factor) * 80
     return {
       supplierId: supplier.id,
       supplierName: supplier.name,
       city: supplier.city,
-      reliability: supplier.reliability,
+      reliability: perf.reliability,
+      declaredReliability: perf.declaredReliability,
+      onTimeRate: perf.onTimeRate,
+      orderSampleSize: perf.orderSampleSize,
       leadTimeDays: supplier.leadTimeDays,
       unitPrice,
       amount,
@@ -184,10 +240,13 @@ export function buildSourcingOffers(input: {
   offers.forEach((offer) => {
     if (offer.leadTimeDays === fastest) offer.reasons.push('Délai le plus court')
     if (offer.amount === cheapest) offer.reasons.push('Meilleur prix')
-    if (offer.reliability === mostReliable) offer.reasons.push('Meilleure fiabilité')
+    if (offer.reliability === mostReliable) offer.reasons.push('Meilleure fiabilité observée')
   })
 
   offers.sort((a, b) => b.score - a.score)
-  if (offers[0]) offers[0].recommended = true
+  if (offers[0]) {
+    offers[0].recommended = true
+    offers[0].reasons.push('Meilleur score global (prix · délai · ponctualité)')
+  }
   return offers
 }

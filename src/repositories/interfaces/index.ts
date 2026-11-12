@@ -103,8 +103,22 @@ export interface WarehouseRepository {
   update(id: string, input: Partial<Warehouse>): Promise<Warehouse>
 }
 
+export interface StockOverviewBoard {
+  rows: import('@/types').StockOverviewRow[]
+  counts: {
+    all: number
+    critical: number
+    watch: number
+    on_order: number
+    normal: number
+  }
+  closedWarehouseIds: string[]
+  today: string
+}
+
 export interface StockRepository {
   list(): Promise<StockItem[]>
+  overview(): Promise<StockOverviewBoard>
   movements(): Promise<StockMovement[]>
   inventories(): Promise<InventorySession[]>
   receive(productId: string, warehouseId: string, quantity: number, userId: string, note: string, reference?: string): Promise<void>
@@ -156,8 +170,52 @@ export interface SupplierProductRepository {
   list(): Promise<import('@/types').SupplierProduct[]>
 }
 
+export interface ProcurementBoardQuery {
+  section?: 'requests' | 'orders' | 'receipts' | 'suppliers'
+  filter?: string
+  page?: number
+  pageSize?: number
+  focusId?: string
+}
+
+export interface ProcurementFormOptions {
+  products: Array<{
+    id: string
+    name: string
+    sku: string
+    unit: string
+    price: number
+    barcode?: string | null
+    supplierId?: string | null
+    archived?: boolean
+  }>
+  warehouses: Array<{ id: string; name: string }>
+  suppliers: import('@/types').Supplier[]
+}
+
+export interface ProcurementBoard {
+  section: 'requests' | 'orders' | 'receipts' | 'suppliers'
+  filter: string
+  page: number
+  pageSize: number
+  total: number
+  pages: number
+  counts: Record<string, number>
+  items: unknown[]
+  focused?: unknown | null
+  readyToPurchase?: import('@/services/request.overview').RequestOverview[]
+  formOptions?: ProcurementFormOptions
+}
+
+export interface ProcurementSourcingResult {
+  requestIds: string[]
+  offers: import('@/services/sourcing.service').SourcingOffer[]
+}
+
 export interface ProcurementRepository {
   list(): Promise<ProcurementRequest[]>
+  board(query?: ProcurementBoardQuery): Promise<ProcurementBoard>
+  sourcing(requestIds: string[]): Promise<ProcurementSourcingResult>
   create(input: Omit<ProcurementRequest, 'id' | 'createdAt' | 'status'> & { status?: ProcurementRequest['status'] }): Promise<ProcurementRequest>
   updateStatus(
     id: string,
@@ -169,6 +227,7 @@ export interface ProcurementRepository {
 export interface PurchaseRepository {
   list(): Promise<PurchaseOrder[]>
   create(input: Omit<PurchaseOrder, 'id' | 'createdAt'>): Promise<PurchaseOrder>
+  createFromOffer?(requestIds: string[], supplierId: string): Promise<PurchaseOrder>
   updateStatus(id: string, status: PurchaseOrder['status']): Promise<PurchaseOrder>
 }
 
@@ -225,6 +284,24 @@ export interface RouteInput {
   warehouseId: string
   status?: Route['status']
   stops?: RouteStopInput[]
+}
+
+export interface RouteAssistInput {
+  warehouseId: string
+  date?: string
+  driverId?: string
+  vehicleId?: string
+  stops: {
+    key: string
+    shippingNoteId: string
+    client?: string
+    city?: string
+    address?: string
+    scheduledAt?: string
+    status?: DeliveryStatus
+    lat?: number
+    lng?: number
+  }[]
 }
 
 export interface ShipmentInput {
@@ -312,6 +389,10 @@ export interface StockLotRepository {
 export interface ReplenishmentRepository {
   list(warehouseId?: string): Promise<import('@/types').ReplenishmentSuggestion[]>
   compute(warehouseId: string, refreshDemand?: boolean): Promise<import('@/types').ReplenishmentSuggestion[]>
+  simulate(
+    warehouseId: string,
+    options?: { serviceLevel?: number; leadTimeDays?: number },
+  ): Promise<import('@/types').ReplenishmentSuggestion[]>
 }
 
 export interface AnalyticsRepository {
@@ -353,7 +434,71 @@ export interface DeliveryRepository {
   update(id: string, input: Partial<DeliveryInput>): Promise<Delivery>
 }
 
+export interface LogisticsBoardQuery {
+  section?: 'notes' | 'deliveries' | 'routes' | 'shipments' | 'fleet'
+  filter?: string
+  page?: number
+  pageSize?: number
+  focusId?: string
+}
+
+export interface LogisticsFormOptions {
+  products: Array<{
+    id: string
+    name: string
+    sku: string
+    unit: string
+    barcode?: string | null
+    trackLots?: boolean
+    archived?: boolean
+  }>
+  warehouses: Array<{
+    id: string
+    name: string
+    city?: string
+    address?: string
+    lat?: number | null
+    lng?: number | null
+  }>
+  customers: Array<{
+    id: string
+    name: string
+    phone?: string
+    email?: string
+    addresses?: import('@/types').Customer['addresses']
+  }>
+  vehicles: import('@/types').Vehicle[]
+  drivers: Array<import('@/types').Driver & { name?: string }>
+  carriers: import('@/types').Carrier[]
+  routes: Array<Pick<import('@/types').Route, 'id' | 'name' | 'warehouseId' | 'driverId' | 'vehicleId' | 'status' | 'date'>>
+  shippingNotes: import('@/types').ShippingNote[]
+  deliveries: import('@/types').Delivery[]
+}
+
+export interface LogisticsBoard {
+  section: 'notes' | 'deliveries' | 'routes' | 'shipments' | 'fleet'
+  filter: string
+  page: number
+  pageSize: number
+  total: number
+  pages: number
+  counts: Record<string, number>
+  metrics: {
+    readyNotes: number
+    risk: number
+    moving: number
+    delivered: number
+    routes: number
+  }
+  items: unknown[]
+  focused?: unknown | null
+  formOptions?: LogisticsFormOptions
+  vehicles?: unknown[]
+  drivers?: unknown[]
+}
+
 export interface LogisticsRepository {
+  board(query?: LogisticsBoardQuery): Promise<LogisticsBoard>
   shipments(): Promise<Shipment[]>
   routes(): Promise<Route[]>
   vehicles(): Promise<Vehicle[]>
@@ -371,6 +516,7 @@ export interface LogisticsRepository {
   updateDriver(id: string, input: Partial<DriverInput>): Promise<Driver>
   createRoute(input: RouteInput): Promise<Route>
   updateRoute(id: string, input: Partial<RouteInput>): Promise<Route>
+  assistRoute(input: RouteAssistInput): Promise<import('@/services/route.assist').RouteAssistResult>
   createShipment(input: ShipmentInput): Promise<Shipment>
   updateShipment(id: string, input: Partial<ShipmentInput>): Promise<Shipment>
   loadShippingNote(id: string, userId: string): Promise<ShippingNote>
@@ -386,8 +532,16 @@ export interface TrackingRepository {
   }>
 }
 
+export interface TaskBoard {
+  tasks: Task[]
+  counts: { open: number; today: number; overdue: number; done: number }
+  groups: { id: string; title: string; items: Task[] }[]
+  done: Task[]
+}
+
 export interface TaskRepository {
   list(): Promise<Task[]>
+  board(): Promise<TaskBoard>
   create(input: Omit<Task, 'id'>): Promise<Task>
   update(id: string, input: Partial<Task>): Promise<Task>
 }
@@ -397,8 +551,38 @@ export interface AlertRepository {
   markRead(id: string): Promise<void>
 }
 
+export interface NotificationRepository {
+  list(): Promise<import('@/types').AppNotification[]>
+  markRead(id: string): Promise<void>
+  markAllRead(): Promise<{ marked: number }>
+}
+
+export interface TodayRepository {
+  brief(): Promise<import('@/services/today.service').TodayBrief>
+}
+
+export interface PlanningBoard {
+  today: string
+  selectedDay: string
+  weekOffset: number
+  type: string
+  counts: { today: number; week: number; next: number }
+  weekDays: { key: string; count: number; isToday: boolean }[]
+  types: { id: string; count: number }[]
+  dayEvents: PlanningEvent[]
+  upcoming: PlanningEvent[]
+  events: PlanningEvent[]
+}
+
+export interface PlanningBoardQuery {
+  weekOffset?: number
+  day?: string
+  type?: string
+}
+
 export interface PlanningRepository {
   list(from?: string, to?: string): Promise<PlanningEvent[]>
+  board(query?: PlanningBoardQuery): Promise<PlanningBoard>
 }
 
 export interface FinanceRepository {

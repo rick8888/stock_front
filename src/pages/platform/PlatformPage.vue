@@ -56,11 +56,11 @@ const editingPlan = ref<SubscriptionPlan | null>(null)
 const selectedId = ref<string | null>(null)
 
 const titles: Record<string, { title: string; description: string }> = {
-  overview: { title: 'Plateforme', description: 'Entreprises clientes, abonnements et encaissements Bravo.Stock.' },
+  overview: { title: 'Plateforme', description: 'Entreprises clientes, abonnements et encaissements BravoStock.' },
   companies: { title: 'Entreprises', description: 'Comptes clients, statut et plan en cours.' },
   plans: { title: 'Plans', description: 'Offres, prix et modules inclus.' },
   subscriptions: { title: 'Abonnements', description: 'Périodes, sièges et impayés.' },
-  billing: { title: 'Facturation', description: 'Factures d’abonnement Bravo.Stock.' },
+  billing: { title: 'Facturation', description: 'Factures d’abonnement BravoStock.' },
 }
 
 const header = computed(() => titles[tab.value] ?? titles.overview)

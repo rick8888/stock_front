@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { uid } from '@/utils/helpers'
 import { assistantService, type PageContext } from '@/services/assistant.service'
 import type { AssistantMessage, ProposedAction, User } from '@/types'
@@ -20,6 +20,7 @@ function welcomeMessage(user?: User | null): AssistantMessage {
 export function useAssistant() {
   const { currentUser } = useCurrentUser()
   const route = useRoute()
+  const router = useRouter()
   const error = ref<string | null>(null)
 
   watch(
@@ -57,7 +58,14 @@ export function useAssistant() {
       const reply = await assistantService.ask({ text, user, page: page() })
       messages.value.push(assistantService.toMessage(reply))
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Assistant indisponible'
+      const detail = err instanceof Error ? err.message : 'Assistant indisponible'
+      error.value = detail
+      messages.value.push({
+        id: uid('msg'),
+        role: 'assistant',
+        content: `Je n’ai pas pu répondre : ${detail}`,
+        createdAt: new Date().toISOString(),
+      })
     } finally {
       loading.value = false
     }
@@ -68,6 +76,27 @@ export function useAssistant() {
     if (!user) return
     loading.value = true
     try {
+      if (action.type === 'open_screen') {
+        const to = String(action.payload.to ?? '')
+        if (!to) {
+          messages.value.push({
+            id: uid('msg'),
+            role: 'assistant',
+            content: 'Lien métier manquant — rien n’a été ouvert.',
+            createdAt: new Date().toISOString(),
+          })
+          return
+        }
+        await router.push(to)
+        messages.value.push({
+          id: uid('msg'),
+          role: 'assistant',
+          content: `Écran ouvert : ${action.summary}.`,
+          createdAt: new Date().toISOString(),
+          suggestions: ['Qu’est-ce qui nécessite mon attention aujourd’hui ?', 'Quelles alertes sont ouvertes ?'],
+        })
+        return
+      }
       const reply = await assistantService.ask({
         text: 'confirm',
         user,

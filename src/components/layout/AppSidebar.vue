@@ -66,7 +66,7 @@ function badgeValue(kind?: 'tasks' | 'alerts') {
         B
       </div>
       <div class="min-w-0">
-        <p class="truncate text-[13px] font-semibold leading-none tracking-tight">Bravo.Stock</p>
+        <p class="truncate text-[13px] font-semibold leading-none tracking-tight">BravoStock</p>
         <p
           class="mt-1.5 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium"
           :class="

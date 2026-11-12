@@ -11,7 +11,7 @@ import EmptyState from '@/components/feedback/EmptyState.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import { formatDateTime } from '@/lib/utils'
-import { alertHref, alertsDescription } from '@/services/alert.visibility'
+import { alertActionLabel, alertHref, alertsDescription } from '@/services/alert.visibility'
 import type { Alert, AlertSeverity } from '@/types'
 
 const { alerts, loading, markRead } = useAlerts()
@@ -187,7 +187,7 @@ async function markAllRead() {
               class="text-[12px] font-medium text-foreground/80 hover:text-foreground"
               @click="router.push(alertHref(alert, currentUser?.role ?? 'MANAGER'))"
             >
-              Voir
+              {{ alertActionLabel(alert) }}
             </button>
             <button
               v-if="!alert.read"
