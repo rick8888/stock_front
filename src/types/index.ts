@@ -888,6 +888,18 @@ export type BillingInterval = 'monthly' | 'yearly'
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'paused'
 export type PlatformInvoiceStatus = 'draft' | 'open' | 'paid' | 'overdue' | 'void'
 export type PlanModule = 'stock' | 'procurement' | 'purchasing' | 'logistics' | 'assistant' | 'analytics' | 'finance'
+export type { BillingCountry, BillingCurrency } from '@/config/billingCountries'
+
+/** Tarif d'un plan dans un pays (devise du pays). */
+export interface PlanPrice {
+  monthly: number
+  yearly: number
+  stripePriceMonthly?: string
+  stripePriceYearly?: string
+}
+
+/** Pays absent = plan non proposé dans ce pays. */
+export type PlanPrices = Partial<Record<import('@/config/billingCountries').BillingCountry, PlanPrice>>
 
 export interface Company {
   id: string
@@ -895,6 +907,9 @@ export interface Company {
   legalName: string
   ice: string
   city: string
+  /** Pays de facturation (devise des factures). Absent = Maroc. */
+  country?: import('@/config/billingCountries').BillingCountry
+  currency?: import('@/config/billingCountries').BillingCurrency
   email: string
   phone: string
   status: CompanyStatus
@@ -908,8 +923,10 @@ export interface SubscriptionPlan {
   name: string
   code: string
   description: string
+  /** Tarif Maroc (MAD), conservé pour compatibilité. Le tarif de référence est dans prices. */
   monthlyPrice: number
   yearlyPrice: number
+  prices?: PlanPrices
   maxUsers: number
   maxWarehouses: number
   modules: PlanModule[]
@@ -938,6 +955,8 @@ export interface PlatformInvoice {
   subscriptionId: string
   number: string
   amount: number
+  /** Absent = MAD (factures antérieures aux tarifs par pays). */
+  currency?: import('@/config/billingCountries').BillingCurrency
   status: PlatformInvoiceStatus
   issuedAt: string
   dueDate: string

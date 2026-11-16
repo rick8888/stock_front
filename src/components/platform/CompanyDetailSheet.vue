@@ -6,6 +6,8 @@ import Badge from '@/components/ui/Badge.vue'
 import Label from '@/components/ui/Label.vue'
 import Avatar from '@/components/ui/Avatar.vue'
 import { formatDate, formatMoney } from '@/lib/utils'
+import { billingCountry } from '@/config/billingCountries'
+import { companyCountry, invoiceCurrency, planPrice } from '@/services/platform.pricing'
 import type {
   BillingInterval,
   Company,
@@ -46,6 +48,22 @@ watch(
     interval.value = props.subscription?.interval ?? 'monthly'
   },
 )
+
+const country = computed(() => billingCountry(companyCountry(props.company)))
+
+// Plans proposés dans le pays de l'entreprise (+ le plan actuel, même s'il n'y a plus de tarif).
+const countryPlans = computed(() =>
+  props.plans.filter(
+    (item) => item.id === props.subscription?.planId || (item.active && planPrice(item, country.value.code)),
+  ),
+)
+
+function planOptionLabel(item: SubscriptionPlan) {
+  const price = planPrice(item, country.value.code)
+  if (!price) return `${item.name} · pas de tarif ${country.value.name}`
+  const amount = interval.value === 'yearly' ? price.yearly : price.monthly
+  return `${item.name} · ${formatMoney(amount, price.currency)} / ${interval.value === 'yearly' ? 'an' : 'mois'}`
+}
 
 const relatedInvoices = computed(() =>
   props.invoices.filter((item) => item.companyId === props.company?.id).slice(0, 8),
@@ -98,9 +116,10 @@ const invoiceLabel: Record<PlatformInvoiceStatus, string> = {
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p class="text-sm text-muted-foreground">{{ company.legalName }}</p>
-          <p class="mt-1 text-sm">{{ company.city }} · {{ company.email }}</p>
+          <p class="mt-1 text-sm">{{ country.flag }} {{ company.city }}, {{ country.name }} · {{ company.email }}</p>
           <p v-if="company.phone" class="mt-1 text-sm text-muted-foreground">{{ company.phone }}</p>
-          <p v-if="company.ice" class="mt-1 text-xs text-muted-foreground">ICE {{ company.ice }}</p>
+          <p v-if="company.ice" class="mt-1 text-xs text-muted-foreground">{{ country.taxIdLabel }} {{ company.ice }}</p>
+          <p class="mt-1 text-xs text-muted-foreground">Facturé en {{ country.currency }}</p>
         </div>
         <Button size="sm" variant="outline" @click="emit('edit')">Modifier</Button>
       </div>
@@ -144,7 +163,14 @@ const invoiceLabel: Record<PlatformInvoiceStatus, string> = {
           <div>
             <Label>Plan</Label>
             <select v-model="planId" class="mt-1.5 h-10 w-full rounded-md border bg-card px-3 text-sm">
-              <option v-for="item in plans" :key="item.id" :value="item.id">{{ item.name }}</option>
+              <option
+                v-for="item in countryPlans"
+                :key="item.id"
+                :value="item.id"
+                :disabled="!planPrice(item, country.code)"
+              >
+                {{ planOptionLabel(item) }}
+              </option>
             </select>
           </div>
           <div>
@@ -199,7 +225,7 @@ const invoiceLabel: Record<PlatformInvoiceStatus, string> = {
               <p class="text-xs text-muted-foreground">Éch. {{ formatDate(invoice.dueDate) }}</p>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-sm font-semibold">{{ formatMoney(invoice.amount) }}</span>
+              <span class="text-sm font-semibold">{{ formatMoney(invoice.amount, invoiceCurrency(invoice)) }}</span>
               <Badge :variant="invoiceVariant(invoice.status)">{{ invoiceLabel[invoice.status] }}</Badge>
               <Button
                 v-if="invoice.status === 'open' || invoice.status === 'overdue'"

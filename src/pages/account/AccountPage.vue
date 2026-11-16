@@ -17,6 +17,8 @@ import Avatar from '@/components/ui/Avatar.vue'
 import CompanyFormSheet from '@/components/platform/CompanyFormSheet.vue'
 import TenantAdminSheet from '@/components/account/TenantAdminSheet.vue'
 import { formatDate, formatMoney } from '@/lib/utils'
+import { billingCountry } from '@/config/billingCountries'
+import { invoiceCurrency, planPrice } from '@/services/platform.pricing'
 import type { BillingInterval, PlatformInvoiceStatus, SubscriptionStatus, User } from '@/types'
 import type { CompanyInput, UserInput } from '@/repositories/interfaces'
 
@@ -27,6 +29,9 @@ const {
   company,
   plan,
   plans,
+  availablePlans,
+  country,
+  currency,
   subscription,
   invoices,
   admins,
@@ -55,6 +60,13 @@ const invoiceFilter = ref<'all' | PlatformInvoiceStatus>('all')
 const draftPlanId = ref('')
 const draftInterval = ref<BillingInterval>('monthly')
 const opsFocus = ref<'risks' | 'delayed' | 'deliveries' | null>(null)
+const countryInfo = computed(() => billingCountry(country.value))
+
+function planOptionLabel(item: (typeof plans.value)[number]) {
+  const price = planPrice(item, country.value)
+  if (!price) return item.name
+  return `${item.name} · ${formatMoney(price.monthly, price.currency)}/mois`
+}
 
 const titles: Record<string, { title: string; description: string }> = {
   overview: { title: 'Compte', description: 'Votre entreprise, votre abonnement et vos factures BravoStock.' },
@@ -257,7 +269,7 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
       <div v-if="tab === 'overview'" class="space-y-5">
         <div class="metric-strip sm:grid-cols-2 xl:grid-cols-4">
           <SignalCard label="Plan" :value="plan?.name ?? '—'" :icon="Building2" tone="info" />
-          <SignalCard label="Abonnement" :value="formatMoney(mrr)" :icon="Wallet" :tone="unpaid ? 'warning' : 'success'" />
+          <SignalCard label="Abonnement" :value="formatMoney(mrr, currency)" :icon="Wallet" :tone="unpaid ? 'warning' : 'success'" />
           <SignalCard
             label="Administrateurs"
             :value="admins.length"
@@ -265,7 +277,7 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
           />
           <SignalCard
             label="À régler"
-            :value="formatMoney(unpaid)"
+            :value="formatMoney(unpaid, currency)"
             :icon="TriangleAlert"
             :tone="unpaid ? 'critical' : 'success'"
             :trend="unpaid ? 'Facture(s) ouverte(s)' : 'Rien en attente'"
@@ -344,8 +356,12 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
               <p class="mt-0.5 text-sm">{{ company?.legalName }}</p>
             </div>
             <div>
-              <p class="text-[11px] font-medium text-muted-foreground">ICE</p>
+              <p class="text-[11px] font-medium text-muted-foreground">{{ countryInfo.taxIdLabel }}</p>
               <p class="mt-0.5 text-sm">{{ company?.ice || '—' }}</p>
+            </div>
+            <div>
+              <p class="text-[11px] font-medium text-muted-foreground">Pays de facturation</p>
+              <p class="mt-0.5 text-sm">{{ countryInfo.flag }} {{ countryInfo.name }} · {{ countryInfo.currency }}</p>
             </div>
             <div>
               <p class="text-[11px] font-medium text-muted-foreground">Ville</p>
@@ -388,7 +404,7 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
             <div>
               <p class="text-sm font-semibold">{{ plan?.name ?? 'Sans plan' }}</p>
               <p class="mt-0.5 text-xs text-muted-foreground">
-                {{ formatMoney(mrr) }} / mois
+                {{ formatMoney(mrr, currency) }} / mois
                 <span v-if="subscription"> · jusqu’au {{ formatDate(subscription.currentPeriodEnd) }}</span>
               </p>
             </div>
@@ -423,8 +439,8 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
             <label class="text-sm">
               <span class="mb-1.5 block text-[11px] font-medium text-muted-foreground">Plan</span>
               <select v-model="draftPlanId" class="h-10 w-full rounded-md border bg-card px-3 text-sm" :disabled="locked">
-                <option v-for="item in plans" :key="item.id" :value="item.id">
-                  {{ item.name }} · {{ formatMoney(item.monthlyPrice) }}/mois
+                <option v-for="item in availablePlans" :key="item.id" :value="item.id">
+                  {{ planOptionLabel(item) }}
                 </option>
               </select>
             </label>
@@ -468,7 +484,7 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
             <p class="mt-0.5 text-xs text-muted-foreground">échéance {{ formatDate(invoice.dueDate) }}</p>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-sm font-semibold">{{ formatMoney(invoice.amount) }}</span>
+            <span class="text-sm font-semibold">{{ formatMoney(invoice.amount, invoiceCurrency(invoice)) }}</span>
             <Badge :variant="invoiceVariant(invoice.status)">{{ invoiceLabel[invoice.status] }}</Badge>
             <p v-if="invoice.status === 'paid' && invoice.paymentRef" class="text-[11px] text-muted-foreground">
               {{ invoice.paymentProvider ?? 'stub' }} · {{ invoice.paymentRef }}
@@ -491,6 +507,7 @@ async function saveAdmin(payload: { id?: string; input: UserInput }) {
       :open="companyOpen"
       :company="company"
       :plans="plans"
+      :country-editable="false"
       @close="companyOpen = false"
       @submit="saveCompany"
     />

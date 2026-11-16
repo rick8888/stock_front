@@ -21,6 +21,7 @@ import {
   Shield,
   ScrollText,
   LayoutDashboard,
+  Inbox,
   type LucideIcon,
 } from 'lucide-vue-next'
 
@@ -81,6 +82,7 @@ const superAdminNav: NavSection[] = [
       { to: '/platform', query: { tab: 'plans' }, label: 'Plans', icon: Tags, permission: 'platform.plans' },
       { to: '/platform', query: { tab: 'subscriptions' }, label: 'Abonnements', icon: CreditCard, permission: 'platform.billing' },
       { to: '/platform', query: { tab: 'billing' }, label: 'Facturation', icon: Receipt, permission: 'platform.billing' },
+      { to: '/platform', query: { tab: 'contacts' }, label: 'Demandes de contact', icon: Inbox, permission: 'platform.view' },
     ],
   },
 ]

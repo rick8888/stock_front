@@ -3,7 +3,8 @@ import { useAsyncList } from './useAsyncList'
 import { useCurrentUser } from './useAuth'
 import { accountService } from '@/services/account.service'
 import { adminService } from '@/services/task.service'
-import { monthlyRecurring, isBillable } from '@/services/platform.service'
+import { monthlyRecurring, isBillable, companyCountry, planPrice } from '@/services/platform.service'
+import { countryCurrency } from '@/config/billingCountries'
 import { analyticsService } from '@/services/analytics.service'
 import { stockService } from '@/services/stock.service'
 import { purchaseService } from '@/services/purchase.service'
@@ -55,9 +56,17 @@ export function useAccount() {
   const company = computed(() => companies.data.value[0] ?? null)
   const subscription = computed(() => subscriptions.data.value[0] ?? null)
   const plan = computed(() => plans.data.value.find((item) => item.id === subscription.value?.planId))
+  const country = computed(() => companyCountry(company.value))
+  const currency = computed(() => countryCurrency(country.value))
+  // Plans proposés dans le pays de l'entreprise (le plan en cours reste visible).
+  const availablePlans = computed(() =>
+    plans.data.value.filter(
+      (item) => item.id === plan.value?.id || (item.active && planPrice(item, country.value) !== null),
+    ),
+  )
   const mrr = computed(() => {
     if (!plan.value || !subscription.value || !isBillable(subscription.value.status)) return 0
-    return monthlyRecurring(plan.value, subscription.value.interval)
+    return monthlyRecurring(plan.value, subscription.value.interval, country.value)
   })
   const unpaid = computed(() =>
     invoices.data.value
@@ -146,6 +155,9 @@ export function useAccount() {
     subscription,
     invoices: invoices.data,
     admins: admins.data,
+    country,
+    currency,
+    availablePlans,
     mrr,
     unpaid,
     ops,

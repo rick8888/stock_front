@@ -9,8 +9,15 @@ export function formatNumber(value: number) {
   return new Intl.NumberFormat('fr-MA').format(value)
 }
 
-export function formatMoney(value: number) {
-  return `${formatNumber(value)} MAD`
+export function formatMoney(value: number, currency = 'MAD') {
+  return `${formatNumber(value)} ${currency}`
+}
+
+/** Montants groupés par devise : « 12 450 MAD · 298 000 XOF ». */
+export function formatMoneyByCurrency(totals: Record<string, number>, empty = 0) {
+  const parts = Object.entries(totals).filter(([, value]) => value !== 0)
+  if (!parts.length) return formatMoney(empty)
+  return parts.map(([currency, value]) => formatMoney(value, currency)).join(' · ')
 }
 
 export function formatCompactMoney(value: number) {

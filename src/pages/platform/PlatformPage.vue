@@ -15,7 +15,10 @@ import Badge from '@/components/ui/Badge.vue'
 import CompanyFormSheet from '@/components/platform/CompanyFormSheet.vue'
 import PlanFormSheet from '@/components/platform/PlanFormSheet.vue'
 import CompanyDetailSheet from '@/components/platform/CompanyDetailSheet.vue'
-import { formatDate, formatMoney } from '@/lib/utils'
+import ContactMessagesPanel from '@/components/platform/ContactMessagesPanel.vue'
+import { formatDate, formatMoney, formatMoneyByCurrency } from '@/lib/utils'
+import { BILLING_COUNTRIES, billingCountry } from '@/config/billingCountries'
+import { invoiceCurrency, planPrice, type MoneyTotals } from '@/services/platform.pricing'
 import type {
   BillingInterval,
   Company,
@@ -61,6 +64,7 @@ const titles: Record<string, { title: string; description: string }> = {
   plans: { title: 'Plans', description: 'Offres, prix et modules inclus.' },
   subscriptions: { title: 'Abonnements', description: 'Périodes, sièges et impayés.' },
   billing: { title: 'Facturation', description: 'Factures d’abonnement BravoStock.' },
+  contacts: { title: 'Demandes de contact', description: 'Messages envoyés depuis le formulaire du site.' },
 }
 
 const header = computed(() => titles[tab.value] ?? titles.overview)
@@ -153,6 +157,29 @@ const visibleInvoices = computed(() => {
 
 const selectedRow = computed(() => rows.value.find((row) => row.company.id === selectedId.value) ?? null)
 
+// Répartition par pays : nombre de clients et revenu mensuel dans la devise locale.
+const countryBreakdown = computed(() =>
+  BILLING_COUNTRIES.map((country) => {
+    const countryRows = rows.value.filter((row) => row.country === country.code)
+    return {
+      ...country,
+      companies: countryRows.length,
+      mrr: countryRows.reduce((sum, row) => sum + row.mrr, 0),
+    }
+  }).filter((item) => item.companies > 0),
+)
+
+function planPriceRows(plan: SubscriptionPlan) {
+  return BILLING_COUNTRIES.flatMap((country) => {
+    const price = planPrice(plan, country.code)
+    return price ? [{ ...country, ...price }] : []
+  })
+}
+
+function moneyTotals(totals: MoneyTotals) {
+  return formatMoneyByCurrency(totals)
+}
+
 function companyName(id: string) {
   return rows.value.find((row) => row.company.id === id)?.company.name ?? id
 }
@@ -241,21 +268,32 @@ async function onPay(id: string) {
       </template>
     </PageHeader>
 
-    <PageSkeleton v-if="loading" />
+    <ContactMessagesPanel v-if="tab === 'contacts'" />
+    <PageSkeleton v-else-if="loading" />
     <ErrorState v-else-if="error" :message="error" />
 
     <div v-else-if="tab === 'overview'" class="space-y-5">
       <div class="metric-strip sm:grid-cols-2 xl:grid-cols-4">
         <SignalCard label="Entreprises" :value="snapshot.companies" :icon="Building2" tone="info" />
-        <SignalCard label="MRR" :value="formatMoney(snapshot.mrr)" :icon="Wallet" tone="success" />
+        <SignalCard label="MRR" :value="moneyTotals(snapshot.mrr)" :icon="Wallet" tone="success" />
         <SignalCard label="Essais" :value="snapshot.trial" :icon="CreditCard" />
         <SignalCard
           label="Impayés"
-          :value="formatMoney(snapshot.overdueAmount)"
+          :value="moneyTotals(snapshot.overdueAmount)"
           :icon="TriangleAlert"
           :tone="snapshot.overdueCount ? 'critical' : 'success'"
           :trend="snapshot.overdueCount ? `${snapshot.overdueCount} facture(s)` : 'Rien en retard'"
         />
+      </div>
+      <div v-if="countryBreakdown.length" class="space-y-2">
+        <h2 class="text-sm font-semibold">Par pays</h2>
+        <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <div v-for="item in countryBreakdown" :key="item.code" class="surface px-4 py-3">
+            <p class="text-sm font-semibold">{{ item.flag }} {{ item.name }}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{{ item.companies }} client(s)</p>
+            <p class="mt-1 text-sm font-semibold tabular-nums">{{ formatMoney(item.mrr, item.currency) }}/mois</p>
+          </div>
+        </div>
       </div>
       <div class="space-y-2">
         <h2 class="text-sm font-semibold">Comptes à suivre</h2>
@@ -267,11 +305,13 @@ async function onPay(id: string) {
         >
           <div>
             <p class="text-sm font-semibold">{{ row.company.name }}</p>
-            <p class="mt-0.5 text-xs text-muted-foreground">{{ row.company.city }} · {{ row.plan?.name ?? 'Sans plan' }}</p>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              {{ billingCountry(row.country).flag }} {{ row.company.city }} · {{ row.plan?.name ?? 'Sans plan' }}
+            </p>
           </div>
           <div class="flex items-center gap-2">
             <Badge :variant="companyVariant(row.company.status)">{{ companyStatusLabel[row.company.status] }}</Badge>
-            <span v-if="row.unpaid" class="text-sm font-semibold text-red-700">{{ formatMoney(row.unpaid) }}</span>
+            <span v-if="row.unpaid" class="text-sm font-semibold text-red-700">{{ formatMoney(row.unpaid, row.currency) }}</span>
           </div>
         </article>
       </div>
@@ -299,13 +339,14 @@ async function onPay(id: string) {
         <div>
           <p class="text-sm font-semibold">{{ row.company.name }}</p>
           <p class="mt-0.5 text-xs text-muted-foreground">
-            {{ row.company.city }} · {{ row.company.usersCount }} utilisateurs · {{ row.company.warehousesCount }} sites
+            {{ billingCountry(row.country).flag }} {{ row.company.city }} · {{ row.company.usersCount }} utilisateurs ·
+            {{ row.company.warehousesCount }} sites
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <Badge v-if="row.plan" variant="outline">{{ row.plan.name }}</Badge>
           <Badge :variant="companyVariant(row.company.status)">{{ companyStatusLabel[row.company.status] }}</Badge>
-          <span class="text-sm font-semibold">{{ formatMoney(row.mrr) }}/mois</span>
+          <span class="text-sm font-semibold">{{ formatMoney(row.mrr, row.currency) }}/mois</span>
         </div>
       </article>
     </div>
@@ -319,8 +360,16 @@ async function onPay(id: string) {
           </div>
           <Badge :variant="plan.active ? 'success' : 'outline'">{{ plan.active ? 'Actif' : 'Masqué' }}</Badge>
         </div>
-        <p class="mt-4 text-2xl font-semibold">{{ formatMoney(plan.monthlyPrice) }}</p>
-        <p class="text-xs text-muted-foreground">par mois · {{ formatMoney(plan.yearlyPrice) }} / an</p>
+        <ul class="mt-4 space-y-1.5">
+          <li v-for="price in planPriceRows(plan)" :key="price.code" class="flex items-baseline justify-between gap-2 text-sm">
+            <span class="text-muted-foreground">{{ price.flag }} {{ price.name }}</span>
+            <span class="text-right">
+              <span class="font-semibold tabular-nums">{{ formatMoney(price.monthly, price.currency) }}</span>
+              <span class="block text-[11px] text-muted-foreground tabular-nums">{{ formatMoney(price.yearly, price.currency) }} / an</span>
+            </span>
+          </li>
+        </ul>
+        <p v-if="!planPriceRows(plan).length" class="mt-4 text-xs text-red-700">Aucun tarif défini.</p>
         <p class="mt-3 text-xs text-muted-foreground">
           {{ cap(plan.maxUsers) }} utilisateurs · {{ cap(plan.maxWarehouses) }} entrepôts
         </p>
@@ -348,7 +397,7 @@ async function onPay(id: string) {
           <Badge v-if="row.subscription" :variant="subscriptionVariant(row.subscription.status)">
             {{ subscriptionLabel[row.subscription.status] }}
           </Badge>
-          <span class="text-sm font-semibold">{{ formatMoney(row.mrr) }}/mois</span>
+          <span class="text-sm font-semibold">{{ formatMoney(row.mrr, row.currency) }}/mois</span>
         </div>
       </article>
     </div>
@@ -378,7 +427,7 @@ async function onPay(id: string) {
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-sm font-semibold">{{ formatMoney(invoice.amount) }}</span>
+          <span class="text-sm font-semibold">{{ formatMoney(invoice.amount, invoiceCurrency(invoice)) }}</span>
           <Badge :variant="invoiceVariant(invoice.status)">{{ invoiceLabel[invoice.status] }}</Badge>
           <Button
             v-if="invoice.status === 'open' || invoice.status === 'overdue'"

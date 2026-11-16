@@ -5,10 +5,10 @@ import type {
   SubscriptionPlan,
 } from '@/types'
 import { platformRepository } from '@/repositories'
+import { countryCurrency, DEFAULT_BILLING_COUNTRY } from '@/config/billingCountries'
+import { addMoney, companyCountry, invoiceCurrency, monthlyRecurring, type MoneyTotals } from './platform.pricing'
 
-export function monthlyRecurring(plan: SubscriptionPlan, interval: Subscription['interval']) {
-  return interval === 'yearly' ? Math.round(plan.yearlyPrice / 12) : plan.monthlyPrice
-}
+export * from './platform.pricing'
 
 export function isBillable(status: Subscription['status']) {
   return status === 'active' || status === 'past_due'
@@ -21,19 +21,25 @@ export function buildPlatformSnapshot(
   invoices: PlatformInvoice[],
 ) {
   const planById = Object.fromEntries(plans.map((plan) => [plan.id, plan]))
-  const mrr = subscriptions.reduce((sum, item) => {
-    if (!isBillable(item.status)) return sum
+  const countryById = Object.fromEntries(companies.map((company) => [company.id, companyCountry(company)]))
+  // Une devise par pays : les montants ne s'additionnent pas entre devises.
+  const mrr: MoneyTotals = {}
+  for (const item of subscriptions) {
     const plan = planById[item.planId]
-    return sum + (plan ? monthlyRecurring(plan, item.interval) : 0)
-  }, 0)
+    if (!plan || !isBillable(item.status)) continue
+    const country = countryById[item.companyId] ?? DEFAULT_BILLING_COUNTRY
+    addMoney(mrr, countryCurrency(country), monthlyRecurring(plan, item.interval, country))
+  }
   const overdue = invoices.filter((item) => item.status === 'overdue')
+  const overdueAmount: MoneyTotals = {}
+  for (const item of overdue) addMoney(overdueAmount, invoiceCurrency(item), item.amount)
   return {
     companies: companies.length,
     active: companies.filter((item) => item.status === 'active').length,
     trial: companies.filter((item) => item.status === 'trial').length,
     suspended: companies.filter((item) => item.status === 'suspended').length,
     mrr,
-    overdueAmount: overdue.reduce((sum, item) => sum + item.amount, 0),
+    overdueAmount,
     overdueCount: overdue.length,
   }
 }
@@ -48,6 +54,7 @@ export function companyRows(
   return companies.map((company) => {
     const subscription = subscriptions.find((item) => item.companyId === company.id)
     const plan = subscription ? planById[subscription.planId] : undefined
+    const country = companyCountry(company)
     const unpaid = invoices
       .filter((item) => item.companyId === company.id && (item.status === 'open' || item.status === 'overdue'))
       .reduce((sum, item) => sum + item.amount, 0)
@@ -55,7 +62,12 @@ export function companyRows(
       company,
       subscription,
       plan,
-      mrr: plan && subscription && isBillable(subscription.status) ? monthlyRecurring(plan, subscription.interval) : 0,
+      country,
+      currency: countryCurrency(country),
+      mrr:
+        plan && subscription && isBillable(subscription.status)
+          ? monthlyRecurring(plan, subscription.interval, country)
+          : 0,
       unpaid,
     }
   })

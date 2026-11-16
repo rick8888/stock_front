@@ -10,6 +10,46 @@ import type {
 import type { CompanyInput, PlanInput, PlatformRepository } from '@/repositories/interfaces'
 import { uid, DEMO_TODAY } from '@/utils/helpers'
 import { db, mutate, withLatency } from './db'
+import {
+  billingCountry,
+  BILLING_COUNTRIES,
+  countryCurrency,
+  DEFAULT_BILLING_COUNTRY,
+  type BillingCountry,
+} from '@/config/billingCountries'
+import { companyCountry, planPrice } from '@/services/platform.pricing'
+import type { PlanPrices } from '@/types'
+
+function requirePrice(plan: SubscriptionPlan, country: BillingCountry) {
+  const price = planPrice(plan, country)
+  if (!price) throw new Error(`${plan.name} n’a pas de tarif pour ${billingCountry(country).name}.`)
+  return price
+}
+
+function normalizeCountry(code?: string | null): BillingCountry {
+  if (!code) return DEFAULT_BILLING_COUNTRY
+  const found = BILLING_COUNTRIES.find((item) => item.code === code.toUpperCase())
+  if (!found) throw new Error('Pays non pris en charge pour la facturation.')
+  return found.code
+}
+
+/** Même règle que l'API : pays sans prix mensuel retiré, au moins un pays requis. */
+function sanitizePrices(input?: PlanPrices): PlanPrices {
+  const out: PlanPrices = {}
+  for (const { code } of BILLING_COUNTRIES) {
+    const row = input?.[code]
+    if (!row || !Number.isFinite(row.monthly)) continue
+    const monthly = Math.max(0, Math.round(row.monthly))
+    const yearly = Number.isFinite(row.yearly) ? Math.max(0, Math.round(row.yearly)) : monthly * 10
+    out[code] = { ...row, monthly, yearly }
+  }
+  if (!Object.keys(out).length) throw new Error('Renseignez le tarif d’au moins un pays.')
+  return out
+}
+
+function referencePrices(prices: PlanPrices) {
+  return { monthlyPrice: prices.MA?.monthly ?? 0, yearlyPrice: prices.MA?.yearly ?? 0 }
+}
 
 function nextInvoiceNumber() {
   const count = db().platformInvoices.length + 1
@@ -58,12 +98,16 @@ export class MockPlatformRepository implements PlatformRepository {
       if (name.length < 2) throw new Error('Le nom de l’entreprise est requis.')
       const plan = db().plans.find((item) => item.id === input.planId)
       if (!plan || !plan.active) throw new Error('Plan introuvable.')
+      const country = normalizeCountry(input.country)
+      requirePrice(plan, country)
       const company: Company = {
         id: uid('co'),
         name,
         legalName: input.legalName.trim() || name,
         ice: input.ice.trim(),
         city: input.city.trim(),
+        country,
+        currency: countryCurrency(country),
         email: input.email.trim().toLowerCase(),
         phone: input.phone.trim(),
         status: 'trial',
@@ -99,6 +143,16 @@ export class MockPlatformRepository implements PlatformRepository {
       if (input.city !== undefined) company.city = input.city.trim()
       if (input.email !== undefined) company.email = input.email.trim().toLowerCase()
       if (input.phone !== undefined) company.phone = input.phone.trim()
+      if (input.country !== undefined) {
+        const country = normalizeCountry(input.country)
+        if (country !== companyCountry(company)) {
+          const subscription = db().subscriptions.find((item) => item.companyId === id)
+          const plan = subscription ? db().plans.find((item) => item.id === subscription.planId) : undefined
+          if (plan) requirePrice(plan, country)
+          company.country = country
+          company.currency = countryCurrency(country)
+        }
+      }
       if (input.status) {
         company.status = input.status
         const subscription = db().subscriptions.find((item) => item.companyId === id)
@@ -121,13 +175,14 @@ export class MockPlatformRepository implements PlatformRepository {
       if (name.length < 2) throw new Error('Le nom du plan est requis.')
       const code = (input.code.trim() || name).toLowerCase().replace(/[^a-z0-9]+/g, '-')
       if (db().plans.some((item) => item.code === code)) throw new Error('Ce code de plan existe déjà.')
+      const prices = sanitizePrices(input.prices)
       const plan: SubscriptionPlan = {
         id: uid('plan'),
         name,
         code,
         description: input.description.trim(),
-        monthlyPrice: Math.max(0, Math.round(input.monthlyPrice)),
-        yearlyPrice: Math.max(0, Math.round(input.yearlyPrice)),
+        prices,
+        ...referencePrices(prices),
         maxUsers: Math.max(0, Math.round(input.maxUsers)),
         maxWarehouses: Math.max(0, Math.round(input.maxWarehouses)),
         modules: [...input.modules],
@@ -144,8 +199,10 @@ export class MockPlatformRepository implements PlatformRepository {
       if (!plan) throw new Error('Plan introuvable.')
       if (input.name !== undefined) plan.name = input.name.trim()
       if (input.description !== undefined) plan.description = input.description.trim()
-      if (input.monthlyPrice !== undefined) plan.monthlyPrice = Math.max(0, Math.round(input.monthlyPrice))
-      if (input.yearlyPrice !== undefined) plan.yearlyPrice = Math.max(0, Math.round(input.yearlyPrice))
+      if (input.prices !== undefined) {
+        plan.prices = sanitizePrices(input.prices)
+        Object.assign(plan, referencePrices(plan.prices))
+      }
       if (input.maxUsers !== undefined) plan.maxUsers = Math.max(0, Math.round(input.maxUsers))
       if (input.maxWarehouses !== undefined) plan.maxWarehouses = Math.max(0, Math.round(input.maxWarehouses))
       if (input.modules) plan.modules = [...input.modules]
@@ -165,6 +222,7 @@ export class MockPlatformRepository implements PlatformRepository {
       if (input.planId) {
         const plan = db().plans.find((item) => item.id === input.planId)
         if (!plan) throw new Error('Plan introuvable.')
+        requirePrice(plan, companyCountry(company))
         subscription.planId = plan.id
       }
       if (input.interval) {
@@ -183,12 +241,14 @@ export class MockPlatformRepository implements PlatformRepository {
       if (input.planId || input.interval) {
         const plan = db().plans.find((item) => item.id === subscription.planId)
         if (plan && subscription.status === 'active') {
+          const price = requirePrice(plan, companyCountry(company))
           const invoice: PlatformInvoice = {
             id: uid('pinv'),
             companyId,
             subscriptionId: subscription.id,
             number: nextInvoiceNumber(),
-            amount: subscription.interval === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice,
+            amount: subscription.interval === 'yearly' ? price.yearly : price.monthly,
+            currency: price.currency,
             status: 'open',
             issuedAt: DEMO_TODAY,
             dueDate: addDays(DEMO_TODAY, 14),

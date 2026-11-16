@@ -633,6 +633,7 @@ export interface CompanyInput {
   city: string
   email: string
   phone: string
+  country: import('@/config/billingCountries').BillingCountry
   planId: string
   interval: BillingInterval
 }
@@ -641,8 +642,7 @@ export interface PlanInput {
   name: string
   code: string
   description: string
-  monthlyPrice: number
-  yearlyPrice: number
+  prices: import('@/types').PlanPrices
   maxUsers: number
   maxWarehouses: number
   modules: PlanModule[]
