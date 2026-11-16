@@ -48,8 +48,8 @@ export class MockTaskRepository implements TaskRepository {
     })
   }
 
-  board() {
-    return withLatency(async () => buildBoard(await this.list()))
+  async board(): Promise<TaskBoard> {
+    return buildBoard(await this.list())
   }
 
   create(input: Omit<Task, 'id'>) {

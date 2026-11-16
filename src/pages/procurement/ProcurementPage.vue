@@ -673,7 +673,7 @@ async function saveSupplier(payload: { id?: string; input: SupplierInput }) {
           </div>
           <div class="shrink-0 text-right">
             <p class="text-sm font-semibold">{{ formatMoney(item.order.amount) }}</p>
-            <p class="text-xs text-muted-foreground">{{ (item as OrderOverview & { etaLabel?: string }).etaLabel ?? orderEtaLabel(item.order, item.late) }}</p>
+            <p class="text-xs text-muted-foreground">{{ orderEtaLabel(item.order, item.late) }}</p>
           </div>
         </button>
       </div>

@@ -65,7 +65,7 @@ function warehousesOf(user: User) {
 }
 
 async function attention(user: User): Promise<AssistantReply> {
-  const brief = await todayService.brief(user)
+  const brief = await todayService.brief()
   const lines = [
     ...brief.toHandle.map((item) => `• ${item.title} — ${item.detail}`),
     ...brief.toWatch.map((item) => `• ${item.title} — ${item.detail}`),

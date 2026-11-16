@@ -41,7 +41,17 @@ import type {
   StockPlacementRepository,
   SupplierProductRepository,
   TrackingRepository,
+  ProcurementBoard,
+  ProcurementBoardQuery,
+  ProcurementSourcingResult,
+  LogisticsBoard,
+  LogisticsBoardQuery,
+  RouteAssistInput,
+  NotificationRepository,
+  PlanningBoard,
+  PlanningBoardQuery,
 } from '@/repositories/interfaces'
+import type { RouteAssistResult } from '@/services/route.assist'
 import type {
   Delivery,
   ProcurementRequest,
@@ -245,7 +255,7 @@ export class ApiProcurementRepository implements ProcurementRepository {
   list(): Promise<ProcurementRequest[]> {
     return httpClient.request('/procurement')
   }
-  board(query: import('@/repositories/interfaces').ProcurementBoardQuery = {}) {
+  board(query: ProcurementBoardQuery = {}): Promise<ProcurementBoard> {
     const params = new URLSearchParams()
     if (query.section) params.set('section', query.section)
     if (query.filter) params.set('filter', query.filter)
@@ -255,7 +265,7 @@ export class ApiProcurementRepository implements ProcurementRepository {
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return httpClient.request(`/procurement/board${suffix}`)
   }
-  sourcing(requestIds: string[]) {
+  sourcing(requestIds: string[]): Promise<ProcurementSourcingResult> {
     const params = new URLSearchParams()
     if (requestIds.length) params.set('ids', requestIds.join(','))
     const suffix = params.toString() ? `?${params.toString()}` : ''
@@ -339,7 +349,7 @@ export class ApiDeliveryRepository implements DeliveryRepository {
 }
 
 export class ApiLogisticsRepository implements LogisticsRepository {
-  board(query: import('@/repositories/interfaces').LogisticsBoardQuery = {}) {
+  board(query: LogisticsBoardQuery = {}): Promise<LogisticsBoard> {
     const params = new URLSearchParams()
     if (query.section) params.set('section', query.section)
     if (query.filter) params.set('filter', query.filter)
@@ -394,7 +404,7 @@ export class ApiLogisticsRepository implements LogisticsRepository {
   updateDriver(id: string, input: Partial<DriverInput>): Promise<Driver> {
     return httpClient.request(`/drivers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
   }
-  assistRoute(input: import('@/repositories/interfaces').RouteAssistInput) {
+  assistRoute(input: RouteAssistInput): Promise<RouteAssistResult> {
     return httpClient.request('/routes/assist', { method: 'POST', body: JSON.stringify(input) })
   }
   createRoute(input: RouteInput): Promise<Route> {
@@ -608,7 +618,7 @@ export class ApiAlertRepository implements AlertRepository {
   }
 }
 
-export class ApiNotificationRepository implements import('@/repositories/interfaces').NotificationRepository {
+export class ApiNotificationRepository implements NotificationRepository {
   list(): Promise<import('@/types').AppNotification[]> {
     return httpClient.request('/notifications')
   }
@@ -629,7 +639,7 @@ export class ApiPlanningRepository implements PlanningRepository {
     return httpClient.request(`/planning${suffix}`)
   }
 
-  board(query: import('@/repositories/interfaces').PlanningBoardQuery = {}) {
+  board(query: PlanningBoardQuery = {}): Promise<PlanningBoard> {
     const params = new URLSearchParams()
     if (query.weekOffset != null) params.set('weekOffset', String(query.weekOffset))
     if (query.day) params.set('day', query.day)

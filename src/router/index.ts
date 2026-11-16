@@ -108,7 +108,7 @@ const routes: RouteRecordRaw[] = [
     path: '/:pathMatch(.*)*',
     redirect: () => {
       const auth = useAuthStore()
-      return auth.isAuthenticated ? homeFor(auth.currentUser?.role) : '/accueil'
+      return auth.isAuthenticated && auth.currentUser ? homeFor(auth.currentUser.role) : '/accueil'
     },
   },
 ]
